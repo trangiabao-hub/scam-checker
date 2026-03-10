@@ -5,6 +5,8 @@ create table if not exists public.scam_cccd_reports (
   cccd text not null check (cccd ~ '^[0-9]{12}$'),
   reporter_name text not null default 'An danh',
   phone text not null default '',
+  submitter_name text not null default '',
+  submitter_phone text not null default '',
   description text not null check (char_length(description) > 0 and char_length(description) <= 2000),
   image_urls text[] not null default '{}',
   equipment_items jsonb not null default '[]'::jsonb,
@@ -14,6 +16,12 @@ create table if not exists public.scam_cccd_reports (
 
 alter table public.scam_cccd_reports
 add column if not exists equipment_items jsonb not null default '[]'::jsonb;
+
+alter table public.scam_cccd_reports
+add column if not exists submitter_name text not null default '';
+
+alter table public.scam_cccd_reports
+add column if not exists submitter_phone text not null default '';
 
 alter table public.scam_cccd_reports enable row level security;
 

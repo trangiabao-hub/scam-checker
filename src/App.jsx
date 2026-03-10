@@ -19,8 +19,10 @@ const formatFileSize = (bytes) => `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 const normalizeReport = (row) => ({
   id: row.id,
   cccd: row.cccd,
-  reporterName: row.reporter_name,
-  phone: row.phone,
+  scammerName: row.reporter_name,
+  scammerPhone: row.phone,
+  submitterName: row.submitter_name ?? "",
+  submitterPhone: row.submitter_phone ?? "",
   description: row.description,
   imageUrls: row.image_urls ?? [],
   equipmentItems: Array.isArray(row.equipment_items)
@@ -47,8 +49,10 @@ function App() {
 
   const [reportForm, setReportForm] = useState({
     cccd: "",
-    reporterName: "",
-    phone: "",
+    scammerName: "",
+    scammerPhone: "",
+    submitterName: "",
+    submitterPhone: "",
     description: "",
   });
   const [reportError, setReportError] = useState("");
@@ -58,6 +62,7 @@ function App() {
     createEmptyEquipmentItem(),
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState("");
 
   const loadReports = useCallback(async () => {
     if (!supabase) return;
@@ -125,6 +130,19 @@ function App() {
     if (searchResult === null || !isValidCccd(queryCccd)) return;
     setSearchResult(reports.filter((item) => item.cccd === queryCccd));
   }, [reports, queryCccd, searchResult]);
+
+  useEffect(() => {
+    if (!previewImageUrl) return;
+
+    const handleEsc = (event) => {
+      if (event.key === "Escape") {
+        setPreviewImageUrl("");
+      }
+    };
+
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [previewImageUrl]);
 
   const totalReports = reports.length;
 
@@ -268,8 +286,10 @@ function App() {
 
       const newReport = {
         cccd: reportForm.cccd,
-        reporter_name: reportForm.reporterName.trim() || "Ẩn danh",
-        phone: reportForm.phone.trim(),
+        reporter_name: reportForm.scammerName.trim() || "Không rõ",
+        phone: reportForm.scammerPhone.trim(),
+        submitter_name: reportForm.submitterName.trim(),
+        submitter_phone: reportForm.submitterPhone.trim(),
         description: reportForm.description.trim(),
         image_urls: imageUrls,
         equipment_items: trimmedEquipmentItems,
@@ -282,13 +302,14 @@ function App() {
         .insert(newReport);
 
       if (insertError) {
-        const isMissingColumnError = /equipment_items/i.test(
+        const isMissingColumnError =
+          /equipment_items|submitter_name|submitter_phone/i.test(
           insertError.message ?? "",
         );
 
         if (!isMissingColumnError) throw insertError;
 
-        const fallbackDetails =
+        const fallbackEquipmentDetails =
           trimmedEquipmentItems.length > 0
             ? `\n\nThiết bị liên quan:\n${trimmedEquipmentItems
                 .map(
@@ -298,11 +319,21 @@ function App() {
                 .join("\n")}`
             : "";
 
+        const fallbackSubmitterDetails =
+          reportForm.submitterName.trim() || reportForm.submitterPhone.trim()
+            ? `\n\nThông tin người đăng:\n- Tên: ${reportForm.submitterName.trim() || "Không cung cấp"}\n- SĐT: ${reportForm.submitterPhone.trim() || "Không cung cấp"}`
+            : "";
+
         const { error: retryInsertError } = await supabase
           .from(SUPABASE_REPORTS_TABLE)
           .insert({
-            ...newReport,
-            description: `${newReport.description}${fallbackDetails}`,
+            cccd: newReport.cccd,
+            reporter_name: newReport.reporter_name,
+            phone: newReport.phone,
+            description: `${newReport.description}${fallbackEquipmentDetails}${fallbackSubmitterDetails}`,
+            image_urls: newReport.image_urls,
+            created_at: newReport.created_at,
+            created_at_ms: newReport.created_at_ms,
           });
 
         if (retryInsertError) throw retryInsertError;
@@ -312,8 +343,10 @@ function App() {
 
       setReportForm({
         cccd: "",
-        reporterName: "",
-        phone: "",
+        scammerName: "",
+        scammerPhone: "",
+        submitterName: "",
+        submitterPhone: "",
         description: "",
       });
       setReportImages([]);
@@ -429,9 +462,47 @@ function App() {
                           <li key={item.id} className="report-card">
                             <div className="report-top">
                               <div>
-                                <strong>{item.reporterName}</strong>
+                                <strong>{item.scammerName}</strong>
                                 <p className="report-date">
                                   {formatDate(item.createdAt)}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="report-meta-grid">
+                              <div className="report-meta-item">
+                                <p className="report-meta-label">CCCD</p>
+                                <p className="report-meta-value">{item.cccd}</p>
+                              </div>
+                              <div className="report-meta-item">
+                                <p className="report-meta-label">
+                                  Số đối tượng lừa đảo
+                                </p>
+                                <p className="report-meta-value">
+                                  {item.scammerPhone?.trim() || "Không cung cấp"}
+                                </p>
+                              </div>
+                              <div className="report-meta-item">
+                                <p className="report-meta-label">
+                                  Tên người đăng
+                                </p>
+                                <p className="report-meta-value">
+                                  {item.submitterName?.trim() || "Không cung cấp"}
+                                </p>
+                              </div>
+                              <div className="report-meta-item">
+                                <p className="report-meta-label">
+                                  SĐT người đăng
+                                </p>
+                                <p className="report-meta-value">
+                                  {item.submitterPhone?.trim() ||
+                                    "Không cung cấp"}
+                                </p>
+                              </div>
+                              <div className="report-meta-item">
+                                <p className="report-meta-label">Số ảnh</p>
+                                <p className="report-meta-value">
+                                  {item.imageUrls?.length ?? 0}
                                 </p>
                               </div>
                             </div>
@@ -464,19 +535,18 @@ function App() {
                             {item.imageUrls?.length > 0 ? (
                               <div className="images-grid">
                                 {item.imageUrls.map((url) => (
-                                  <a
+                                  <button
                                     key={url}
-                                    href={url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="thumb-link"
+                                    type="button"
+                                    className="thumb-button"
+                                    onClick={() => setPreviewImageUrl(url)}
                                   >
                                     <img
                                       src={url}
                                       alt="Bằng chứng scam"
                                       className="thumb"
                                     />
-                                  </a>
+                                  </button>
                                 ))}
                               </div>
                             ) : null}
@@ -524,28 +594,54 @@ function App() {
 
                   <div className="form-grid">
                     <div>
-                      <label htmlFor="reporterName">Tên người tố cáo</label>
+                      <label htmlFor="scammerName">Tên đối tượng lừa đảo</label>
                       <input
-                        id="reporterName"
+                        id="scammerName"
                         type="text"
-                        value={reportForm.reporterName}
+                        value={reportForm.scammerName}
                         onChange={(event) =>
-                          updateReportField("reporterName", event.target.value)
+                          updateReportField("scammerName", event.target.value)
                         }
-                        placeholder="Có thể để trống nếu muốn ẩn danh"
+                        placeholder="VD: Nguyễn Văn A"
                       />
                     </div>
 
                     <div>
-                      <label htmlFor="reporterPhone">
-                        Số điện thoại liên hệ
-                      </label>
+                      <label htmlFor="scammerPhone">Số đối tượng lừa đảo</label>
                       <input
-                        id="reporterPhone"
+                        id="scammerPhone"
                         type="text"
-                        value={reportForm.phone}
+                        value={reportForm.scammerPhone}
                         onChange={(event) =>
-                          updateReportField("phone", event.target.value)
+                          updateReportField("scammerPhone", event.target.value)
+                        }
+                        placeholder="SĐT đối tượng (nếu có)"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-grid">
+                    <div>
+                      <label htmlFor="submitterName">Tên người đăng</label>
+                      <input
+                        id="submitterName"
+                        type="text"
+                        value={reportForm.submitterName}
+                        onChange={(event) =>
+                          updateReportField("submitterName", event.target.value)
+                        }
+                        placeholder="Tên của bạn (không bắt buộc)"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="submitterPhone">SĐT người đăng</label>
+                      <input
+                        id="submitterPhone"
+                        type="text"
+                        value={reportForm.submitterPhone}
+                        onChange={(event) =>
+                          updateReportField("submitterPhone", event.target.value)
                         }
                         placeholder="Không bắt buộc"
                       />
@@ -681,38 +777,80 @@ function App() {
               <ul className="latest-list">
                 {latestReports.map((item) => (
                   <li key={item.id} className="mini-report-card">
-                    <div className="mini-report-header">
-                      <span className="mini-cccd">{item.cccd}</span>
-                      <span className="mini-date">
-                        {formatDate(item.createdAt)}
-                      </span>
+                    <div className="report-top">
+                      <div>
+                        <strong>{item.scammerName}</strong>
+                        <p className="report-date">{formatDate(item.createdAt)}</p>
+                      </div>
+                    </div>
+
+                    <div className="report-meta-grid">
+                      <div className="report-meta-item">
+                        <p className="report-meta-label">CCCD</p>
+                        <p className="report-meta-value">{item.cccd}</p>
+                      </div>
+                      <div className="report-meta-item">
+                        <p className="report-meta-label">
+                          Số đối tượng lừa đảo
+                        </p>
+                        <p className="report-meta-value">
+                          {item.scammerPhone?.trim() || "Không cung cấp"}
+                        </p>
+                      </div>
+                      <div className="report-meta-item">
+                        <p className="report-meta-label">Tên người đăng</p>
+                        <p className="report-meta-value">
+                          {item.submitterName?.trim() || "Không cung cấp"}
+                        </p>
+                      </div>
+                      <div className="report-meta-item">
+                        <p className="report-meta-label">SĐT người đăng</p>
+                        <p className="report-meta-value">
+                          {item.submitterPhone?.trim() || "Không cung cấp"}
+                        </p>
+                      </div>
+                      <div className="report-meta-item">
+                        <p className="report-meta-label">Số ảnh</p>
+                        <p className="report-meta-value">
+                          {item.imageUrls?.length ?? 0}
+                        </p>
+                      </div>
                     </div>
 
                     <p className="mini-description">{item.description}</p>
 
                     {item.equipmentItems?.length > 0 ? (
-                      <p className="mini-equipment">
-                        {item.equipmentItems.length} thiết bị -{" "}
-                        {item.equipmentItems[0].deviceName}
-                      </p>
+                      <div className="equipment-display">
+                        <p className="equipment-title">Thiết bị liên quan</p>
+                        <ul className="equipment-display-list">
+                          {item.equipmentItems.map((equipment, index) => (
+                            <li
+                              key={`${item.id}-latest-equipment-${index}`}
+                              className="equipment-pill"
+                            >
+                              {equipment.deviceName} - S/N:{" "}
+                              {equipment.serialNumber}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     ) : null}
 
                     {item.imageUrls?.length > 0 ? (
                       <div className="images-grid compact">
-                        {item.imageUrls.slice(0, 3).map((url) => (
-                          <a
+                        {item.imageUrls.map((url) => (
+                          <button
                             key={url}
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="thumb-link"
+                            type="button"
+                            className="thumb-button"
+                            onClick={() => setPreviewImageUrl(url)}
                           >
                             <img
                               src={url}
                               alt="Bằng chứng scam"
                               className="thumb"
                             />
-                          </a>
+                          </button>
                         ))}
                       </div>
                     ) : null}
@@ -723,6 +861,35 @@ function App() {
           </aside>
         </section>
       </div>
+
+      {previewImageUrl ? (
+        <div
+          className="image-modal-overlay"
+          role="presentation"
+          onClick={() => setPreviewImageUrl("")}
+        >
+          <div
+            className="image-modal-content"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Xem ảnh bằng chứng"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="image-modal-close"
+              onClick={() => setPreviewImageUrl("")}
+            >
+              Đóng
+            </button>
+            <img
+              src={previewImageUrl}
+              alt="Ảnh bằng chứng phóng to"
+              className="image-modal-preview"
+            />
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
