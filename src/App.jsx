@@ -13,6 +13,12 @@ const MAX_EQUIPMENT_ITEMS = 10;
 const createEmptyEquipmentItem = () => ({ deviceName: "", serialNumber: "" });
 
 const isValidCccd = (value) => /^\d{12}$/.test(value);
+const normalizeSearchText = (value) =>
+  String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 const formatDate = (value) => new Date(value).toLocaleString("vi-VN");
 const formatFileSize = (bytes) => `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 
@@ -43,7 +49,7 @@ function App() {
   const [isLoadingReports, setIsLoadingReports] = useState(true);
   const [supabaseError, setSupabaseError] = useState("");
 
-  const [queryCccd, setQueryCccd] = useState("");
+  const [queryKeyword, setQueryKeyword] = useState("");
   const [searchResult, setSearchResult] = useState(null);
   const [searchError, setSearchError] = useState("");
 
@@ -126,10 +132,42 @@ function App() {
     };
   }, [loadReports]);
 
+  const findMatches = useCallback(
+    (keyword) => {
+      const normalizedKeyword = normalizeSearchText(keyword);
+      const keywordDigits = String(keyword ?? "").replace(/\D/g, "");
+
+      if (!normalizedKeyword) return [];
+
+      return reports.filter((item) => {
+        const textFields = [
+          item.cccd,
+          item.scammerPhone,
+          item.submitterPhone,
+          item.scammerName,
+          item.submitterName,
+        ];
+
+        const matchedByText = textFields.some((field) =>
+          normalizeSearchText(field).includes(normalizedKeyword),
+        );
+
+        const matchedByDigits = keywordDigits
+          ? [item.cccd, item.scammerPhone, item.submitterPhone].some((field) =>
+              String(field ?? "").replace(/\D/g, "").includes(keywordDigits),
+            )
+          : false;
+
+        return matchedByText || matchedByDigits;
+      });
+    },
+    [reports],
+  );
+
   useEffect(() => {
-    if (searchResult === null || !isValidCccd(queryCccd)) return;
-    setSearchResult(reports.filter((item) => item.cccd === queryCccd));
-  }, [reports, queryCccd, searchResult]);
+    if (searchResult === null || !queryKeyword.trim()) return;
+    setSearchResult(findMatches(queryKeyword));
+  }, [findMatches, queryKeyword, searchResult]);
 
   useEffect(() => {
     if (!previewImageUrl) return;
@@ -158,14 +196,13 @@ function App() {
     event.preventDefault();
     setSearchError("");
 
-    if (!isValidCccd(queryCccd)) {
+    if (!queryKeyword.trim()) {
       setSearchResult(null);
-      setSearchError("CCCD phải gồm đúng 12 chữ số.");
+      setSearchError("Vui lòng nhập CCCD, số điện thoại hoặc tên để tra cứu.");
       return;
     }
 
-    const matches = reports.filter((item) => item.cccd === queryCccd);
-    setSearchResult(matches);
+    setSearchResult(findMatches(queryKeyword));
   };
 
   const updateReportField = (field, value) => {
@@ -400,7 +437,7 @@ function App() {
                 className={activeTab === "check" ? "tab active" : "tab"}
                 onClick={() => setActiveTab("check")}
               >
-                Tra cứu CCCD
+                Tra cứu CCCD/SĐT/Tên
               </button>
               <button
                 className={activeTab === "report" ? "tab active" : "tab"}
@@ -417,22 +454,21 @@ function App() {
                     <p className="section-kicker">
                       Kiểm tra trước khi giao máy
                     </p>
-                    <h2>Tra cứu CCCD</h2>
+                    <h2>Tra cứu CCCD, SĐT hoặc tên</h2>
                   </div>
                 </div>
 
                 <form onSubmit={handleCheck} className="form">
-                  <label htmlFor="queryCccd">Nhập số CCCD (12 số)</label>
+                  <label htmlFor="queryKeyword">
+                    Nhập CCCD, số điện thoại hoặc tên
+                  </label>
                   <div className="input-row">
                     <input
-                      id="queryCccd"
+                      id="queryKeyword"
                       type="text"
-                      value={queryCccd}
-                      onChange={(event) =>
-                        setQueryCccd(event.target.value.replace(/\D/g, ""))
-                      }
-                      maxLength={12}
-                      placeholder="Ví dụ: 012345678901"
+                      value={queryKeyword}
+                      onChange={(event) => setQueryKeyword(event.target.value)}
+                      placeholder="Ví dụ: 012345678901 / 0988xxxxxx / Nguyen Van A"
                     />
                     <button type="submit" className="primary-btn">
                       Kiểm tra
@@ -449,7 +485,7 @@ function App() {
                     <div className="result-summary">
                       <div>
                         <p className="result-label">Kết quả tra cứu</p>
-                        <h3>{queryCccd}</h3>
+                        <h3>{queryKeyword}</h3>
                       </div>
                       <div className="result-badge">
                         {searchResult.length} tố cáo
