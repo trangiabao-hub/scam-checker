@@ -1,4 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  CalendarClock,
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  IdCard,
+  Phone,
+  Search,
+  ShieldAlert,
+  UserRound,
+} from "lucide-react";
 import "./App.css";
 import {
   hasSupabaseConfig,
@@ -10,6 +22,7 @@ import {
 const MAX_IMAGES = 6;
 const MAX_IMAGE_MB = 5;
 const MAX_EQUIPMENT_ITEMS = 10;
+const HOME_REPORTS_PER_PAGE = 6;
 const createEmptyEquipmentItem = () => ({ deviceName: "", serialNumber: "" });
 
 const isValidCccd = (value) => /^\d{12}$/.test(value);
@@ -21,6 +34,13 @@ const normalizeSearchText = (value) =>
     .trim();
 const formatDate = (value) => new Date(value).toLocaleString("vi-VN");
 const formatFileSize = (bytes) => `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+const hasSubmitterInfo = (report) =>
+  Boolean(report.submitterName?.trim() || report.submitterPhone?.trim());
+const getRiskLevel = (count) => {
+  if (count >= 3) return { label: "Rủi ro cao", className: "risk-high" };
+  if (count >= 1) return { label: "Có cảnh báo", className: "risk-medium" };
+  return { label: "An toàn tạm thời", className: "risk-low" };
+};
 
 const normalizeReport = (row) => ({
   id: row.id,
@@ -68,7 +88,10 @@ function App() {
     createEmptyEquipmentItem(),
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [previewImageUrl, setPreviewImageUrl] = useState("");
+  const [previewImages, setPreviewImages] = useState([]);
+  const [previewImageIndex, setPreviewImageIndex] = useState(0);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [homePage, setHomePage] = useState(1);
 
   const loadReports = useCallback(async () => {
     if (!supabase) return;
@@ -170,27 +193,58 @@ function App() {
   }, [findMatches, queryKeyword, searchResult]);
 
   useEffect(() => {
-    if (!previewImageUrl) return;
+    if (previewImages.length === 0 && !selectedReport) return;
 
     const handleEsc = (event) => {
       if (event.key === "Escape") {
-        setPreviewImageUrl("");
+        if (previewImages.length > 0) {
+          setPreviewImages([]);
+          setPreviewImageIndex(0);
+          return;
+        }
+        setSelectedReport(null);
       }
     };
 
     window.addEventListener("keydown", handleEsc);
     return () => window.removeEventListener("keydown", handleEsc);
-  }, [previewImageUrl]);
+  }, [previewImages, selectedReport]);
 
   const totalReports = reports.length;
 
-  const latestReports = useMemo(
-    () =>
-      [...reports]
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-        .slice(0, 5),
-    [reports],
+  const totalHomePages = useMemo(
+    () => Math.max(1, Math.ceil(reports.length / HOME_REPORTS_PER_PAGE)),
+    [reports.length],
   );
+
+  const paginatedReports = useMemo(() => {
+    const startIndex = (homePage - 1) * HOME_REPORTS_PER_PAGE;
+    return reports.slice(startIndex, startIndex + HOME_REPORTS_PER_PAGE);
+  }, [homePage, reports]);
+
+  const totalEvidenceInSearch = useMemo(
+    () =>
+      Array.isArray(searchResult)
+        ? searchResult.reduce(
+            (sum, item) =>
+              sum +
+              (item.imageUrls?.length ?? 0) +
+              (item.equipmentItems?.length ?? 0),
+            0,
+          )
+        : 0,
+    [searchResult],
+  );
+
+  const latestFoundAt = useMemo(() => {
+    if (!Array.isArray(searchResult) || searchResult.length === 0) return "";
+    const newest = searchResult.reduce((currentNewest, item) =>
+      item.createdAtMs > currentNewest.createdAtMs ? item : currentNewest,
+    );
+    return formatDate(newest.createdAt);
+  }, [searchResult]);
+
+  const previewImageUrl = previewImages[previewImageIndex] ?? "";
 
   const handleCheck = (event) => {
     event.preventDefault();
@@ -198,11 +252,41 @@ function App() {
 
     if (!queryKeyword.trim()) {
       setSearchResult(null);
+      setSelectedReport(null);
       setSearchError("Vui lòng nhập CCCD, số điện thoại hoặc tên để tra cứu.");
       return;
     }
 
-    setSearchResult(findMatches(queryKeyword));
+    const matchedReports = findMatches(queryKeyword);
+    setSearchResult(matchedReports);
+    setSelectedReport(null);
+  };
+
+  useEffect(() => {
+    setHomePage((prevPage) => Math.min(prevPage, totalHomePages));
+  }, [totalHomePages]);
+
+  const openImagePreview = (images, index = 0) => {
+    if (!Array.isArray(images) || images.length === 0) return;
+    setPreviewImages(images);
+    setPreviewImageIndex(index);
+  };
+
+  const closeImagePreview = () => {
+    setPreviewImages([]);
+    setPreviewImageIndex(0);
+  };
+
+  const goToPreviousPreviewImage = () => {
+    setPreviewImageIndex((prevIndex) =>
+      prevIndex === 0 ? previewImages.length - 1 : prevIndex - 1,
+    );
+  };
+
+  const goToNextPreviewImage = () => {
+    setPreviewImageIndex((prevIndex) =>
+      prevIndex === previewImages.length - 1 ? 0 : prevIndex + 1,
+    );
   };
 
   const updateReportField = (field, value) => {
@@ -463,13 +547,16 @@ function App() {
                     Nhập CCCD, số điện thoại hoặc tên
                   </label>
                   <div className="input-row">
-                    <input
-                      id="queryKeyword"
-                      type="text"
-                      value={queryKeyword}
-                      onChange={(event) => setQueryKeyword(event.target.value)}
-                      placeholder="Ví dụ: 012345678901 / 0988xxxxxx / Nguyen Van A"
-                    />
+                    <div className="search-input-wrap">
+                      <Search size={18} className="search-input-icon" />
+                      <input
+                        id="queryKeyword"
+                        type="text"
+                        value={queryKeyword}
+                        onChange={(event) => setQueryKeyword(event.target.value)}
+                        placeholder="Ví dụ: 012345678901 / 0988xxxxxx / Nguyen Van A"
+                      />
+                    </div>
                     <button type="submit" className="primary-btn">
                       Kiểm tra
                     </button>
@@ -487,8 +574,34 @@ function App() {
                         <p className="result-label">Kết quả tra cứu</p>
                         <h3>{queryKeyword}</h3>
                       </div>
-                      <div className="result-badge">
-                        {searchResult.length} tố cáo
+                      <div
+                        className={`result-badge ${getRiskLevel(searchResult.length).className}`}
+                      >
+                        {getRiskLevel(searchResult.length).label}
+                      </div>
+                    </div>
+
+                    <div className="search-metrics-grid">
+                      <div className="search-metric-card">
+                        <ShieldAlert size={18} />
+                        <div>
+                          <p>Tổng tố cáo khớp</p>
+                          <strong>{searchResult.length}</strong>
+                        </div>
+                      </div>
+                      <div className="search-metric-card">
+                        <Camera size={18} />
+                        <div>
+                          <p>Bằng chứng liên quan</p>
+                          <strong>{totalEvidenceInSearch}</strong>
+                        </div>
+                      </div>
+                      <div className="search-metric-card">
+                        <CalendarClock size={18} />
+                        <div>
+                          <p>Tố cáo mới nhất</p>
+                          <strong>{latestFoundAt || "Chưa có"}</strong>
+                        </div>
                       </div>
                     </div>
 
@@ -503,6 +616,13 @@ function App() {
                                   {formatDate(item.createdAt)}
                                 </p>
                               </div>
+                              <button
+                                type="button"
+                                className="secondary-btn report-detail-btn"
+                                onClick={() => setSelectedReport(item)}
+                              >
+                                Xem đầy đủ
+                              </button>
                             </div>
 
                             <div className="report-meta-grid">
@@ -518,29 +638,28 @@ function App() {
                                   {item.scammerPhone?.trim() || "Không cung cấp"}
                                 </p>
                               </div>
-                              <div className="report-meta-item">
-                                <p className="report-meta-label">
-                                  Tên người đăng
-                                </p>
-                                <p className="report-meta-value">
-                                  {item.submitterName?.trim() || "Không cung cấp"}
-                                </p>
-                              </div>
-                              <div className="report-meta-item">
-                                <p className="report-meta-label">
-                                  SĐT người đăng
-                                </p>
-                                <p className="report-meta-value">
-                                  {item.submitterPhone?.trim() ||
-                                    "Không cung cấp"}
-                                </p>
-                              </div>
-                              <div className="report-meta-item">
-                                <p className="report-meta-label">Số ảnh</p>
-                                <p className="report-meta-value">
-                                  {item.imageUrls?.length ?? 0}
-                                </p>
-                              </div>
+                              {hasSubmitterInfo(item) ? (
+                                <>
+                                  <div className="report-meta-item">
+                                    <p className="report-meta-label">
+                                      Tên người đăng
+                                    </p>
+                                    <p className="report-meta-value">
+                                      {item.submitterName?.trim() ||
+                                        "Không cung cấp"}
+                                    </p>
+                                  </div>
+                                  <div className="report-meta-item">
+                                    <p className="report-meta-label">
+                                      SĐT người đăng
+                                    </p>
+                                    <p className="report-meta-value">
+                                      {item.submitterPhone?.trim() ||
+                                        "Không cung cấp"}
+                                    </p>
+                                  </div>
+                                </>
+                              ) : null}
                             </div>
 
                             <p className="report-description">
@@ -570,12 +689,14 @@ function App() {
 
                             {item.imageUrls?.length > 0 ? (
                               <div className="images-grid">
-                                {item.imageUrls.map((url) => (
+                                {item.imageUrls.map((url, imageIndex) => (
                                   <button
                                     key={url}
                                     type="button"
                                     className="thumb-button"
-                                    onClick={() => setPreviewImageUrl(url)}
+                                    onClick={() =>
+                                      openImagePreview(item.imageUrls, imageIndex)
+                                    }
                                   >
                                     <img
                                       src={url}
@@ -597,8 +718,8 @@ function App() {
                   </div>
                 ) : (
                   <div className="empty-state">
-                    Nhập CCCD để kiểm tra lịch sử tố cáo trước khi xác nhận giao
-                    dịch.
+                    Nhập CCCD/SĐT/tên để kiểm tra lịch sử tố cáo trước khi xác
+                    nhận giao dịch.
                   </div>
                 )}
               </section>
@@ -803,15 +924,16 @@ function App() {
 
           <aside className="sidebar-card">
             <div className="sidebar-section">
-              <p className="section-kicker">Mới nhất</p>
-              <h2>5 tố cáo gần đây</h2>
+              <p className="section-kicker">Toàn bộ dữ liệu</p>
+              <h2>Tất cả vụ scam</h2>
             </div>
 
-            {latestReports.length === 0 ? (
+            {reports.length === 0 ? (
               <div className="empty-state">Chưa có dữ liệu.</div>
             ) : (
-              <ul className="latest-list">
-                {latestReports.map((item) => (
+              <>
+                <ul className="latest-list">
+                  {paginatedReports.map((item) => (
                   <li key={item.id} className="mini-report-card">
                     <div className="report-top">
                       <div>
@@ -833,24 +955,22 @@ function App() {
                           {item.scammerPhone?.trim() || "Không cung cấp"}
                         </p>
                       </div>
-                      <div className="report-meta-item">
-                        <p className="report-meta-label">Tên người đăng</p>
-                        <p className="report-meta-value">
-                          {item.submitterName?.trim() || "Không cung cấp"}
-                        </p>
-                      </div>
-                      <div className="report-meta-item">
-                        <p className="report-meta-label">SĐT người đăng</p>
-                        <p className="report-meta-value">
-                          {item.submitterPhone?.trim() || "Không cung cấp"}
-                        </p>
-                      </div>
-                      <div className="report-meta-item">
-                        <p className="report-meta-label">Số ảnh</p>
-                        <p className="report-meta-value">
-                          {item.imageUrls?.length ?? 0}
-                        </p>
-                      </div>
+                      {hasSubmitterInfo(item) ? (
+                        <>
+                          <div className="report-meta-item">
+                            <p className="report-meta-label">Tên người đăng</p>
+                            <p className="report-meta-value">
+                              {item.submitterName?.trim() || "Không cung cấp"}
+                            </p>
+                          </div>
+                          <div className="report-meta-item">
+                            <p className="report-meta-label">SĐT người đăng</p>
+                            <p className="report-meta-value">
+                              {item.submitterPhone?.trim() || "Không cung cấp"}
+                            </p>
+                          </div>
+                        </>
+                      ) : null}
                     </div>
 
                     <p className="mini-description">{item.description}</p>
@@ -874,12 +994,14 @@ function App() {
 
                     {item.imageUrls?.length > 0 ? (
                       <div className="images-grid compact">
-                        {item.imageUrls.map((url) => (
+                        {item.imageUrls.map((url, imageIndex) => (
                           <button
                             key={url}
                             type="button"
                             className="thumb-button"
-                            onClick={() => setPreviewImageUrl(url)}
+                            onClick={() =>
+                              openImagePreview(item.imageUrls, imageIndex)
+                            }
                           >
                             <img
                               src={url}
@@ -891,8 +1013,33 @@ function App() {
                       </div>
                     ) : null}
                   </li>
-                ))}
-              </ul>
+                  ))}
+                </ul>
+
+                <div className="pagination-wrap">
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={() => setHomePage((prev) => Math.max(prev - 1, 1))}
+                    disabled={homePage === 1}
+                  >
+                    Trước
+                  </button>
+                  <p className="pagination-text">
+                    Trang {homePage}/{totalHomePages}
+                  </p>
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    onClick={() =>
+                      setHomePage((prev) => Math.min(prev + 1, totalHomePages))
+                    }
+                    disabled={homePage === totalHomePages}
+                  >
+                    Sau
+                  </button>
+                </div>
+              </>
             )}
           </aside>
         </section>
@@ -902,7 +1049,7 @@ function App() {
         <div
           className="image-modal-overlay"
           role="presentation"
-          onClick={() => setPreviewImageUrl("")}
+          onClick={closeImagePreview}
         >
           <div
             className="image-modal-content"
@@ -914,15 +1061,159 @@ function App() {
             <button
               type="button"
               className="image-modal-close"
-              onClick={() => setPreviewImageUrl("")}
+              onClick={closeImagePreview}
             >
               Đóng
             </button>
+            {previewImages.length > 1 ? (
+              <>
+                <button
+                  type="button"
+                  className="image-modal-nav image-modal-nav-left"
+                  onClick={goToPreviousPreviewImage}
+                  aria-label="Ảnh trước"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  type="button"
+                  className="image-modal-nav image-modal-nav-right"
+                  onClick={goToNextPreviewImage}
+                  aria-label="Ảnh sau"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </>
+            ) : null}
             <img
               src={previewImageUrl}
               alt="Ảnh bằng chứng phóng to"
               className="image-modal-preview"
             />
+            <p className="image-modal-counter">
+              Ảnh {previewImageIndex + 1}/{previewImages.length}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedReport ? (
+        <div
+          className="report-modal-overlay"
+          role="presentation"
+          onClick={() => setSelectedReport(null)}
+        >
+          <div
+            className="report-modal-content"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Chi tiết tố cáo"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="report-modal-header">
+              <div>
+                <p className="section-kicker">Chi tiết đầy đủ</p>
+                <h3>{selectedReport.scammerName || "Không rõ đối tượng"}</h3>
+                <p className="report-date">{formatDate(selectedReport.createdAt)}</p>
+              </div>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => setSelectedReport(null)}
+              >
+                Đóng
+              </button>
+            </div>
+
+            <div className="report-modal-meta-grid">
+              <div className="report-modal-meta-item">
+                <IdCard size={16} />
+                <div>
+                  <p>CCCD</p>
+                  <strong>{selectedReport.cccd || "Không cung cấp"}</strong>
+                </div>
+              </div>
+              <div className="report-modal-meta-item">
+                <Phone size={16} />
+                <div>
+                  <p>SĐT đối tượng</p>
+                  <strong>
+                    {selectedReport.scammerPhone?.trim() || "Không cung cấp"}
+                  </strong>
+                </div>
+              </div>
+              {hasSubmitterInfo(selectedReport) ? (
+                <>
+                  <div className="report-modal-meta-item">
+                    <UserRound size={16} />
+                    <div>
+                      <p>Người đăng</p>
+                      <strong>
+                        {selectedReport.submitterName?.trim() || "Không cung cấp"}
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="report-modal-meta-item">
+                    <Phone size={16} />
+                    <div>
+                      <p>SĐT người đăng</p>
+                      <strong>
+                        {selectedReport.submitterPhone?.trim() ||
+                          "Không cung cấp"}
+                      </strong>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            <div className="report-modal-section">
+              <p className="report-modal-title">Nội dung tố cáo</p>
+              <p className="report-description">
+                {selectedReport.description || "Không có nội dung"}
+              </p>
+            </div>
+
+            {selectedReport.equipmentItems?.length > 0 ? (
+              <div className="report-modal-section">
+                <p className="report-modal-title">Thiết bị liên quan</p>
+                <ul className="equipment-display-list">
+                  {selectedReport.equipmentItems.map((equipment, index) => (
+                    <li
+                      key={`${selectedReport.id}-modal-equipment-${index}`}
+                      className="equipment-pill"
+                    >
+                      {equipment.deviceName} - S/N: {equipment.serialNumber}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            <div className="report-modal-section">
+              <p className="report-modal-title">Ảnh bằng chứng</p>
+              {selectedReport.imageUrls?.length > 0 ? (
+                <div className="images-grid">
+                  {selectedReport.imageUrls.map((url, imageIndex) => (
+                    <button
+                      key={url}
+                      type="button"
+                      className="thumb-button"
+                      onClick={() =>
+                        openImagePreview(selectedReport.imageUrls, imageIndex)
+                      }
+                    >
+                      <img src={url} alt="Bằng chứng scam" className="thumb" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="report-modal-empty">
+                  <CircleAlert size={16} />
+                  Chưa có ảnh bằng chứng.
+                </div>
+              )}
+            </div>
           </div>
         </div>
       ) : null}
