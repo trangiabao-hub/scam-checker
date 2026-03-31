@@ -5,12 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev-prod": "vite --mode product",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sync:be-images": "node scripts/sync-be-image-urls.mjs --mode product",
+    "sync:device-images": "node scripts/sync-device-image-urls.mjs --mode product"
   },
   "dependencies": {
-    "lucide-react": "^0.577.0",
+    "@ant-design/icons": "^6.1.1",
+    "antd": "^6.3.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

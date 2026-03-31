@@ -1,16 +1,61 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  CalendarClock,
-  Camera,
-  ChevronLeft,
-  ChevronRight,
-  CircleAlert,
-  IdCard,
-  Phone,
-  Search,
-  ShieldAlert,
-  UserRound,
-} from "lucide-react";
+  Layout,
+  Card,
+  Tabs,
+  Input,
+  Button,
+  Form,
+  Upload,
+  Modal,
+  Image,
+  Tag,
+  Pagination,
+  Alert,
+  Descriptions,
+  List,
+  Statistic,
+  Empty,
+  Spin,
+  Typography,
+  Space,
+  Row,
+  Col,
+  Divider,
+  Flex,
+  Grid,
+  Tooltip,
+  theme,
+  message,
+} from "antd";
+import {
+  SearchOutlined,
+  SafetyCertificateOutlined,
+  SendOutlined,
+  IdcardOutlined,
+  PhoneOutlined,
+  UserOutlined,
+  CalendarOutlined,
+  CameraOutlined,
+  WarningOutlined,
+  AlertOutlined,
+  CheckCircleOutlined,
+  PlusOutlined,
+  DeleteOutlined,
+  PictureOutlined,
+  EyeOutlined,
+  ExclamationCircleOutlined,
+  ToolOutlined,
+  InboxOutlined,
+  FileSearchOutlined,
+  SafetyOutlined,
+  ClockCircleOutlined,
+  NumberOutlined,
+  FireOutlined,
+  TeamOutlined,
+  DatabaseOutlined,
+  UnorderedListOutlined,
+} from "@ant-design/icons";
 import "./App.css";
 import {
   createReport,
@@ -18,6 +63,10 @@ import {
   hasApiConfig,
   uploadEvidenceFile,
 } from "./api";
+
+const { Content } = Layout;
+const { Title, Text, Paragraph } = Typography;
+const { useBreakpoint } = Grid;
 
 const MAX_IMAGES = 6;
 const MAX_IMAGE_MB = 5;
@@ -33,13 +82,27 @@ const normalizeSearchText = (value) =>
     .toLowerCase()
     .trim();
 const formatDate = (value) => new Date(value).toLocaleString("vi-VN");
-const formatFileSize = (bytes) => `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 const hasSubmitterInfo = (report) =>
   Boolean(report.submitterName?.trim() || report.submitterPhone?.trim());
+
 const getRiskLevel = (count) => {
-  if (count >= 3) return { label: "Rủi ro cao", className: "risk-high" };
-  if (count >= 1) return { label: "Có cảnh báo", className: "risk-medium" };
-  return { label: "An toàn tạm thời", className: "risk-low" };
+  if (count >= 3)
+    return {
+      label: "Rủi ro cao",
+      badgeClass: "risk-badge risk-badge-high",
+      icon: <FireOutlined />,
+    };
+  if (count >= 1)
+    return {
+      label: "Có cảnh báo",
+      badgeClass: "risk-badge risk-badge-medium",
+      icon: <WarningOutlined />,
+    };
+  return {
+    label: "An toàn tạm thời",
+    badgeClass: "risk-badge risk-badge-low",
+    icon: <CheckCircleOutlined />,
+  };
 };
 
 const normalizeReport = (row) => ({
@@ -66,8 +129,262 @@ const normalizeReport = (row) => ({
     new Date(row.created_at ?? row.createdAt ?? Date.now()).getTime(),
 });
 
+/* ══════════════════════════════════════════════
+   REPORT DETAIL MODAL
+   ══════════════════════════════════════════════ */
+
+function ReportDetailModal({ report, open, onClose }) {
+  if (!report) return null;
+
+  return (
+    <Modal
+      open={open}
+      onCancel={onClose}
+      footer={null}
+      width={760}
+      className="premium-modal"
+      title={
+        <div>
+          <span className="kicker">Chi tiết tố cáo</span>
+          <Title level={4} style={{ margin: 0 }}>
+            {report.scammerName || "Không rõ đối tượng"}
+          </Title>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            <ClockCircleOutlined style={{ marginRight: 4 }} />
+            {formatDate(report.createdAt)}
+          </Text>
+        </div>
+      }
+    >
+      <Descriptions
+        bordered
+        size="small"
+        column={{ xs: 1, sm: 2 }}
+        className="premium-descriptions"
+        style={{ marginBottom: 18 }}
+      >
+        <Descriptions.Item label={<><IdcardOutlined /> CCCD</>}>
+          <Text strong copyable={{ text: report.cccd }}>
+            {report.cccd || "Không cung cấp"}
+          </Text>
+        </Descriptions.Item>
+        <Descriptions.Item label={<><PhoneOutlined /> SĐT đối tượng</>}>
+          <Text strong>
+            {report.scammerPhone?.trim() || "Không cung cấp"}
+          </Text>
+        </Descriptions.Item>
+        {hasSubmitterInfo(report) && (
+          <>
+            <Descriptions.Item label={<><UserOutlined /> Người đăng</>}>
+              <Text strong>
+                {report.submitterName?.trim() || "Không cung cấp"}
+              </Text>
+            </Descriptions.Item>
+            <Descriptions.Item label={<><PhoneOutlined /> SĐT người đăng</>}>
+              <Text strong>
+                {report.submitterPhone?.trim() || "Không cung cấp"}
+              </Text>
+            </Descriptions.Item>
+          </>
+        )}
+      </Descriptions>
+
+      <div className="modal-section">
+        <Text className="modal-section-title">
+          <ExclamationCircleOutlined /> Nội dung tố cáo
+        </Text>
+        <Paragraph style={{ whiteSpace: "pre-wrap", margin: 0, lineHeight: 1.8 }}>
+          {report.description || "Không có nội dung"}
+        </Paragraph>
+      </div>
+
+      {report.equipmentItems?.length > 0 && (
+        <div className="modal-section">
+          <Text className="modal-section-title">
+            <CameraOutlined /> Thiết bị liên quan
+          </Text>
+          <Flex wrap gap={8}>
+            {report.equipmentItems.map((eq, idx) => (
+              <Tag key={idx} className="equip-tag" icon={<CameraOutlined />}>
+                {eq.deviceName} — S/N: {eq.serialNumber}
+              </Tag>
+            ))}
+          </Flex>
+        </div>
+      )}
+
+      <div className="modal-section" style={{ marginBottom: 0 }}>
+        <Text className="modal-section-title">
+          <PictureOutlined /> Ảnh bằng chứng
+        </Text>
+        {report.imageUrls?.length > 0 ? (
+          <Image.PreviewGroup>
+            <Flex wrap gap={10}>
+              {report.imageUrls.map((url, idx) => (
+                <Image
+                  key={url}
+                  src={url}
+                  alt={`Bằng chứng ${idx + 1}`}
+                  width={130}
+                  height={100}
+                  style={{ objectFit: "cover", borderRadius: 10 }}
+                  placeholder
+                />
+              ))}
+            </Flex>
+          </Image.PreviewGroup>
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="Chưa có ảnh bằng chứng"
+          />
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   REPORT CARD (reusable)
+   ══════════════════════════════════════════════ */
+
+function ReportCard({ item, onViewDetail, compact }) {
+  return (
+    <Card
+      size="small"
+      hoverable
+      className="report-card"
+      style={{ borderRadius: 16 }}
+    >
+      <Flex justify="space-between" align="flex-start" gap={12}>
+        <Space direction="vertical" size={2}>
+          <Text strong style={{ fontSize: 15 }}>
+            {item.scammerName || "Không rõ"}
+          </Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            <ClockCircleOutlined style={{ marginRight: 3 }} />
+            {formatDate(item.createdAt)}
+          </Text>
+        </Space>
+        {onViewDetail && (
+          <Tooltip title="Xem chi tiết đầy đủ">
+            <Button
+              type="primary"
+              ghost
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => onViewDetail(item)}
+              style={{ borderRadius: 8 }}
+            >
+              Chi tiết
+            </Button>
+          </Tooltip>
+        )}
+      </Flex>
+
+      <Divider style={{ margin: "12px 0" }} />
+
+      <Row gutter={[10, 8]}>
+        <Col xs={24} sm={compact ? 24 : 8}>
+          <div style={{
+            padding: "8px 12px",
+            borderRadius: 10,
+            background: "#f8fafc",
+            border: "1px solid #f1f5f9",
+          }}>
+            <Text style={{ fontSize: 11, color: "#94a3b8", display: "block", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              CCCD
+            </Text>
+            <Text strong style={{ fontSize: 13, fontFamily: "monospace" }}>
+              {item.cccd}
+            </Text>
+          </div>
+        </Col>
+        <Col xs={24} sm={compact ? 24 : 8}>
+          <div style={{
+            padding: "8px 12px",
+            borderRadius: 10,
+            background: "#f8fafc",
+            border: "1px solid #f1f5f9",
+          }}>
+            <Text style={{ fontSize: 11, color: "#94a3b8", display: "block", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              SĐT đối tượng
+            </Text>
+            <Text strong style={{ fontSize: 13 }}>
+              {item.scammerPhone?.trim() || "—"}
+            </Text>
+          </div>
+        </Col>
+        {hasSubmitterInfo(item) && (
+          <Col xs={24} sm={compact ? 24 : 8}>
+            <div style={{
+              padding: "8px 12px",
+              borderRadius: 10,
+              background: "#f8fafc",
+              border: "1px solid #f1f5f9",
+            }}>
+              <Text style={{ fontSize: 11, color: "#94a3b8", display: "block", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Người đăng
+              </Text>
+              <Text strong style={{ fontSize: 13 }}>
+                {item.submitterName?.trim() || "—"}
+              </Text>
+            </div>
+          </Col>
+        )}
+      </Row>
+
+      <Paragraph
+        type="secondary"
+        ellipsis={{ rows: 2 }}
+        style={{ marginTop: 10, marginBottom: 0, fontSize: 13, lineHeight: 1.7 }}
+      >
+        {item.description}
+      </Paragraph>
+
+      {item.equipmentItems?.length > 0 && (
+        <Flex wrap gap={6} style={{ marginTop: 10 }}>
+          {item.equipmentItems.map((eq, idx) => (
+            <Tag key={idx} className="equip-tag" style={{ fontSize: 12 }}>
+              <CameraOutlined /> {eq.deviceName} — {eq.serialNumber}
+            </Tag>
+          ))}
+        </Flex>
+      )}
+
+      {item.imageUrls?.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <Image.PreviewGroup>
+            <Flex wrap gap={6}>
+              {item.imageUrls.map((url, idx) => (
+                <Image
+                  key={url}
+                  src={url}
+                  alt={`Bằng chứng ${idx + 1}`}
+                  width={72}
+                  height={54}
+                  style={{ objectFit: "cover", borderRadius: 8 }}
+                  placeholder
+                />
+              ))}
+            </Flex>
+          </Image.PreviewGroup>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   MAIN APP
+   ══════════════════════════════════════════════ */
+
 function App() {
-  const [activeTab, setActiveTab] = useState("check");
+  const [messageApi, contextHolder] = message.useMessage();
+  const screens = useBreakpoint();
+  const { token } = theme.useToken();
+
+  const [activeTab, setActiveTab] = useState("all");
   const [reports, setReports] = useState([]);
   const [isLoadingReports, setIsLoadingReports] = useState(true);
   const [dataError, setDataError] = useState("");
@@ -91,10 +408,10 @@ function App() {
     createEmptyEquipmentItem(),
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [previewImages, setPreviewImages] = useState([]);
-  const [previewImageIndex, setPreviewImageIndex] = useState(0);
   const [selectedReport, setSelectedReport] = useState(null);
   const [homePage, setHomePage] = useState(1);
+
+  /* ── data loading ────────────────────────── */
 
   const loadReports = useCallback(async () => {
     const data = await fetchReports();
@@ -112,51 +429,37 @@ function App() {
       setIsLoadingReports(false);
       return;
     }
-
     const init = async () => {
       try {
         await loadReports();
         setDataError("");
       } catch {
         setDataError(
-          "Không đọc được dữ liệu từ API public. Kiểm tra lại endpoint và biến môi trường.",
+          "Không đọc được dữ liệu từ API. Kiểm tra lại endpoint và biến môi trường.",
         );
       } finally {
         setIsLoadingReports(false);
       }
     };
-
     init();
-    return undefined;
   }, [loadReports]);
+
+  /* ── search logic ────────────────────────── */
 
   const findMatches = useCallback(
     (keyword) => {
-      const normalizedKeyword = normalizeSearchText(keyword);
-      const keywordDigits = String(keyword ?? "").replace(/\D/g, "");
-
-      if (!normalizedKeyword) return [];
-
+      const norm = normalizeSearchText(keyword);
+      const digits = String(keyword ?? "").replace(/\D/g, "");
+      if (!norm) return [];
       return reports.filter((item) => {
-        const textFields = [
-          item.cccd,
-          item.scammerPhone,
-          item.submitterPhone,
-          item.scammerName,
-          item.submitterName,
-        ];
-
-        const matchedByText = textFields.some((field) =>
-          normalizeSearchText(field).includes(normalizedKeyword),
-        );
-
-        const matchedByDigits = keywordDigits
-          ? [item.cccd, item.scammerPhone, item.submitterPhone].some((field) =>
-              String(field ?? "").replace(/\D/g, "").includes(keywordDigits),
+        const fields = [item.cccd, item.scammerPhone, item.submitterPhone, item.scammerName, item.submitterName];
+        const textMatch = fields.some((f) => normalizeSearchText(f).includes(norm));
+        const digitMatch = digits
+          ? [item.cccd, item.scammerPhone, item.submitterPhone].some((f) =>
+              String(f ?? "").replace(/\D/g, "").includes(digits),
             )
           : false;
-
-        return matchedByText || matchedByDigits;
+        return textMatch || digitMatch;
       });
     },
     [reports],
@@ -165,46 +468,24 @@ function App() {
   useEffect(() => {
     if (searchResult === null || !queryKeyword.trim()) return;
     setSearchResult(findMatches(queryKeyword));
-  }, [findMatches, queryKeyword, searchResult]);
-
-  useEffect(() => {
-    if (previewImages.length === 0 && !selectedReport) return;
-
-    const handleEsc = (event) => {
-      if (event.key === "Escape") {
-        if (previewImages.length > 0) {
-          setPreviewImages([]);
-          setPreviewImageIndex(0);
-          return;
-        }
-        setSelectedReport(null);
-      }
-    };
-
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
-  }, [previewImages, selectedReport]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findMatches]);
 
   const totalReports = reports.length;
-
   const totalHomePages = useMemo(
     () => Math.max(1, Math.ceil(reports.length / HOME_REPORTS_PER_PAGE)),
     [reports.length],
   );
-
   const paginatedReports = useMemo(() => {
-    const startIndex = (homePage - 1) * HOME_REPORTS_PER_PAGE;
-    return reports.slice(startIndex, startIndex + HOME_REPORTS_PER_PAGE);
+    const s = (homePage - 1) * HOME_REPORTS_PER_PAGE;
+    return reports.slice(s, s + HOME_REPORTS_PER_PAGE);
   }, [homePage, reports]);
 
   const totalEvidenceInSearch = useMemo(
     () =>
       Array.isArray(searchResult)
         ? searchResult.reduce(
-            (sum, item) =>
-              sum +
-              (item.imageUrls?.length ?? 0) +
-              (item.equipmentItems?.length ?? 0),
+            (sum, i) => sum + (i.imageUrls?.length ?? 0) + (i.equipmentItems?.length ?? 0),
             0,
           )
         : 0,
@@ -213,161 +494,97 @@ function App() {
 
   const latestFoundAt = useMemo(() => {
     if (!Array.isArray(searchResult) || searchResult.length === 0) return "";
-    const newest = searchResult.reduce((currentNewest, item) =>
-      item.createdAtMs > currentNewest.createdAtMs ? item : currentNewest,
+    const newest = searchResult.reduce((cur, i) =>
+      i.createdAtMs > cur.createdAtMs ? i : cur,
     );
     return formatDate(newest.createdAt);
   }, [searchResult]);
 
-  const previewImageUrl = previewImages[previewImageIndex] ?? "";
+  /* ── handlers ────────────────────────────── */
 
-  const handleCheck = (event) => {
-    event.preventDefault();
+  const handleCheck = () => {
     setSearchError("");
-
     if (!queryKeyword.trim()) {
       setSearchResult(null);
       setSelectedReport(null);
       setSearchError("Vui lòng nhập CCCD, số điện thoại hoặc tên để tra cứu.");
       return;
     }
-
-    const matchedReports = findMatches(queryKeyword);
-    setSearchResult(matchedReports);
+    setSearchResult(findMatches(queryKeyword));
     setSelectedReport(null);
   };
 
   useEffect(() => {
-    setHomePage((prevPage) => Math.min(prevPage, totalHomePages));
+    setHomePage((p) => Math.min(p, totalHomePages));
   }, [totalHomePages]);
 
-  const openImagePreview = (images, index = 0) => {
-    if (!Array.isArray(images) || images.length === 0) return;
-    setPreviewImages(images);
-    setPreviewImageIndex(index);
-  };
-
-  const closeImagePreview = () => {
-    setPreviewImages([]);
-    setPreviewImageIndex(0);
-  };
-
-  const goToPreviousPreviewImage = () => {
-    setPreviewImageIndex((prevIndex) =>
-      prevIndex === 0 ? previewImages.length - 1 : prevIndex - 1,
-    );
-  };
-
-  const goToNextPreviewImage = () => {
-    setPreviewImageIndex((prevIndex) =>
-      prevIndex === previewImages.length - 1 ? 0 : prevIndex + 1,
-    );
-  };
-
-  const updateReportField = (field, value) => {
+  const updateReportField = (field, value) =>
     setReportForm((prev) => ({ ...prev, [field]: value }));
-  };
 
-  const handleImageChange = (event) => {
-    const files = Array.from(event.target.files ?? []);
+  const handleImageChange = (info) => {
+    const fileList = info.fileList.slice(0, MAX_IMAGES);
+    const bad = fileList.find(
+      (f) =>
+        f.originFileObj &&
+        (!f.originFileObj.type.startsWith("image/") ||
+          f.originFileObj.size > MAX_IMAGE_MB * 1024 * 1024),
+    );
+    if (bad) {
+      setReportError(`File ${bad.name} không hợp lệ. Chỉ nhận ảnh ≤ ${MAX_IMAGE_MB}MB.`);
+      return;
+    }
     setReportError("");
-
-    if (files.length > MAX_IMAGES) {
-      setReportImages([]);
-      setReportError(`Chỉ được upload tối đa ${MAX_IMAGES} ảnh.`);
-      return;
-    }
-
-    const invalidFile = files.find(
-      (file) =>
-        !file.type.startsWith("image/") ||
-        file.size > MAX_IMAGE_MB * 1024 * 1024,
-    );
-
-    if (invalidFile) {
-      setReportImages([]);
-      setReportError(
-        `File ${invalidFile.name} không hợp lệ. Chỉ nhận ảnh ≤ ${MAX_IMAGE_MB}MB.`,
-      );
-      return;
-    }
-
-    setReportImages(files);
+    setReportImages(fileList);
   };
 
-  const updateEquipmentItem = (index, field, value) => {
+  const updateEquipmentItem = (idx, field, value) =>
     setEquipmentItems((prev) =>
-      prev.map((item, itemIndex) =>
-        itemIndex === index ? { ...item, [field]: value } : item,
-      ),
+      prev.map((it, i) => (i === idx ? { ...it, [field]: value } : it)),
     );
-  };
 
   const addEquipmentItem = () => {
     setReportError("");
     setEquipmentItems((prev) => {
       if (prev.length >= MAX_EQUIPMENT_ITEMS) {
-        setReportError(`Chỉ được thêm tối đa ${MAX_EQUIPMENT_ITEMS} thiết bị.`);
+        setReportError(`Tối đa ${MAX_EQUIPMENT_ITEMS} thiết bị.`);
         return prev;
       }
       return [...prev, createEmptyEquipmentItem()];
     });
   };
 
-  const removeEquipmentItem = (index) => {
+  const removeEquipmentItem = (idx) => {
     setReportError("");
-    setEquipmentItems((prev) => {
-      if (prev.length === 1) return [createEmptyEquipmentItem()];
-      return prev.filter((_, itemIndex) => itemIndex !== index);
-    });
+    setEquipmentItems((prev) =>
+      prev.length === 1
+        ? [createEmptyEquipmentItem()]
+        : prev.filter((_, i) => i !== idx),
+    );
   };
 
-  const handleSubmitReport = async (event) => {
-    event.preventDefault();
+  const handleSubmitReport = async () => {
     setReportError("");
     setReportSuccess("");
 
-    if (!hasApiConfig) {
-      setReportError("API chưa cấu hình đầy đủ, chưa thể gửi tố cáo.");
-      return;
-    }
+    if (!hasApiConfig) { setReportError("API chưa cấu hình."); return; }
+    if (!isValidCccd(reportForm.cccd)) { setReportError("CCCD phải đúng 12 chữ số."); return; }
+    if (!reportForm.description.trim()) { setReportError("Vui lòng nhập nội dung tố cáo."); return; }
 
-    if (!isValidCccd(reportForm.cccd)) {
-      setReportError("CCCD không hợp lệ. Vui lòng nhập đúng 12 chữ số.");
-      return;
-    }
-
-    if (!reportForm.description.trim()) {
-      setReportError("Vui lòng nhập nội dung tố cáo.");
-      return;
-    }
-
-    const trimmedEquipmentItems = equipmentItems
-      .map((item) => ({
-        deviceName: item.deviceName.trim(),
-        serialNumber: item.serialNumber.trim(),
-      }))
-      .filter((item) => item.deviceName || item.serialNumber);
-
-    const invalidEquipment = trimmedEquipmentItems.find(
-      (item) => !item.deviceName || !item.serialNumber,
-    );
-
-    if (invalidEquipment) {
-      setReportError("Mỗi thiết bị cần nhập đủ tên máy và số seri.");
+    const trimmed = equipmentItems
+      .map((i) => ({ deviceName: i.deviceName.trim(), serialNumber: i.serialNumber.trim() }))
+      .filter((i) => i.deviceName || i.serialNumber);
+    if (trimmed.find((i) => !i.deviceName || !i.serialNumber)) {
+      setReportError("Mỗi thiết bị cần đủ tên máy và số seri.");
       return;
     }
 
     try {
       setIsSubmitting(true);
-
+      const files = reportImages.map((f) => f.originFileObj).filter(Boolean);
       const imageUrls = await Promise.all(
-        reportImages.map(async (file) => {
-          return uploadEvidenceFile({ file, cccd: reportForm.cccd });
-        }),
+        files.map((file) => uploadEvidenceFile({ file, cccd: reportForm.cccd })),
       );
-
-      const newReport = {
+      await createReport({
         cccd: reportForm.cccd,
         reporter_name: reportForm.scammerName.trim() || "Không rõ",
         phone: reportForm.scammerPhone.trim(),
@@ -375,771 +592,570 @@ function App() {
         submitter_phone: reportForm.submitterPhone.trim(),
         description: reportForm.description.trim(),
         image_urls: imageUrls,
-        equipment_items: trimmedEquipmentItems,
+        equipment_items: trimmed,
         created_at: new Date().toISOString(),
         created_at_ms: Date.now(),
-      };
-
-      await createReport(newReport);
-
-      await loadReports();
-
-      setReportForm({
-        cccd: "",
-        scammerName: "",
-        scammerPhone: "",
-        submitterName: "",
-        submitterPhone: "",
-        description: "",
       });
+      await loadReports();
+      setReportForm({ cccd: "", scammerName: "", scammerPhone: "", submitterName: "", submitterPhone: "", description: "" });
       setReportImages([]);
       setEquipmentItems([createEmptyEquipmentItem()]);
       setReportSuccess("Tố cáo đã được ghi nhận thành công.");
+      messageApi.success("Tố cáo đã được ghi nhận!");
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Lỗi không xác định";
-      setReportError(`Gửi tố cáo thất bại: ${message}`);
+      setReportError(`Gửi thất bại: ${error instanceof Error ? error.message : "Lỗi không xác định"}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  return (
-    <main className="app-shell">
-      <div className="background-glow glow-1" />
-      <div className="background-glow glow-2" />
+  /* ══════════════════════════════════════════
+     SEARCH PANEL
+     ══════════════════════════════════════════ */
 
-      <div className="container">
-        <section className="hero">
-          <div className="hero-badge">Camera Rental Safety</div>
-          <h1>Check scam CCCD khi thuê máy ảnh</h1>
-          <p className="hero-subtitle">
-            Đây là hệ thống phi lợi nhuận giúp các shop cho thuê máy ảnh kiểm
-            tra rủi ro scam trước khi giao máy. Tra cứu nhanh lịch sử tố cáo để
-            giảm thiểu thất thoát khi cho thuê máy ảnh
-          </p>
-
-          <div className="hero-stats">
-            <div className="hero-stat">
-              <span className="hero-stat-label">Tổng tố cáo</span>
-              <strong>{totalReports}</strong>
-            </div>
-          </div>
-        </section>
-
-        {dataError ? (
-          <div className="alert alert-error">{dataError}</div>
-        ) : null}
-        {isLoadingReports ? (
-          <div className="alert alert-info">
-            Đang tải dữ liệu từ API public...
-          </div>
-        ) : null}
-
-        <section className="main-grid">
-          <div className="content-card">
-            <div className="tabs">
-              <button
-                className={activeTab === "check" ? "tab active" : "tab"}
-                onClick={() => setActiveTab("check")}
-              >
-                Tra cứu CCCD/SĐT/Tên
-              </button>
-              <button
-                className={activeTab === "report" ? "tab active" : "tab"}
-                onClick={() => setActiveTab("report")}
-              >
-                Gửi tố cáo
-              </button>
-            </div>
-
-            {activeTab === "check" ? (
-              <section className="panel">
-                <div className="panel-header">
-                  <div>
-                    <p className="section-kicker">
-                      Kiểm tra trước khi giao máy
-                    </p>
-                    <h2>Tra cứu CCCD, SĐT hoặc tên</h2>
-                  </div>
-                </div>
-
-                <form onSubmit={handleCheck} className="form">
-                  <label htmlFor="queryKeyword">
-                    Nhập CCCD, số điện thoại hoặc tên
-                  </label>
-                  <div className="input-row">
-                    <div className="search-input-wrap">
-                      <Search size={18} className="search-input-icon" />
-                      <input
-                        id="queryKeyword"
-                        type="text"
-                        value={queryKeyword}
-                        onChange={(event) => setQueryKeyword(event.target.value)}
-                        placeholder="Ví dụ: 012345678901 / 0988xxxxxx / Nguyen Van A"
-                      />
-                    </div>
-                    <button type="submit" className="primary-btn">
-                      Kiểm tra
-                    </button>
-                  </div>
-                </form>
-
-                {searchError ? (
-                  <div className="alert alert-error">{searchError}</div>
-                ) : null}
-
-                {searchResult ? (
-                  <div className="result-card">
-                    <div className="result-summary">
-                      <div>
-                        <p className="result-label">Kết quả tra cứu</p>
-                        <h3>{queryKeyword}</h3>
-                      </div>
-                      <div
-                        className={`result-badge ${getRiskLevel(searchResult.length).className}`}
-                      >
-                        {getRiskLevel(searchResult.length).label}
-                      </div>
-                    </div>
-
-                    <div className="search-metrics-grid">
-                      <div className="search-metric-card">
-                        <ShieldAlert size={18} />
-                        <div>
-                          <p>Tổng tố cáo khớp</p>
-                          <strong>{searchResult.length}</strong>
-                        </div>
-                      </div>
-                      <div className="search-metric-card">
-                        <Camera size={18} />
-                        <div>
-                          <p>Bằng chứng liên quan</p>
-                          <strong>{totalEvidenceInSearch}</strong>
-                        </div>
-                      </div>
-                      <div className="search-metric-card">
-                        <CalendarClock size={18} />
-                        <div>
-                          <p>Tố cáo mới nhất</p>
-                          <strong>{latestFoundAt || "Chưa có"}</strong>
-                        </div>
-                      </div>
-                    </div>
-
-                    {searchResult.length > 0 ? (
-                      <ul className="result-list">
-                        {searchResult.map((item) => (
-                          <li key={item.id} className="report-card">
-                            <div className="report-top">
-                              <div>
-                                <strong>{item.scammerName}</strong>
-                                <p className="report-date">
-                                  {formatDate(item.createdAt)}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                className="secondary-btn report-detail-btn"
-                                onClick={() => setSelectedReport(item)}
-                              >
-                                Xem đầy đủ
-                              </button>
-                            </div>
-
-                            <div className="report-meta-grid">
-                              <div className="report-meta-item">
-                                <p className="report-meta-label">CCCD</p>
-                                <p className="report-meta-value">{item.cccd}</p>
-                              </div>
-                              <div className="report-meta-item">
-                                <p className="report-meta-label">
-                                  Số đối tượng lừa đảo
-                                </p>
-                                <p className="report-meta-value">
-                                  {item.scammerPhone?.trim() || "Không cung cấp"}
-                                </p>
-                              </div>
-                              {hasSubmitterInfo(item) ? (
-                                <>
-                                  <div className="report-meta-item">
-                                    <p className="report-meta-label">
-                                      Tên người đăng
-                                    </p>
-                                    <p className="report-meta-value">
-                                      {item.submitterName?.trim() ||
-                                        "Không cung cấp"}
-                                    </p>
-                                  </div>
-                                  <div className="report-meta-item">
-                                    <p className="report-meta-label">
-                                      SĐT người đăng
-                                    </p>
-                                    <p className="report-meta-value">
-                                      {item.submitterPhone?.trim() ||
-                                        "Không cung cấp"}
-                                    </p>
-                                  </div>
-                                </>
-                              ) : null}
-                            </div>
-
-                            <p className="report-description">
-                              {item.description}
-                            </p>
-
-                            {item.equipmentItems?.length > 0 ? (
-                              <div className="equipment-display">
-                                <p className="equipment-title">
-                                  Thiết bị liên quan
-                                </p>
-                                <ul className="equipment-display-list">
-                                  {item.equipmentItems.map(
-                                    (equipment, index) => (
-                                      <li
-                                        key={`${item.id}-equipment-${index}`}
-                                        className="equipment-pill"
-                                      >
-                                        {equipment.deviceName} - S/N:{" "}
-                                        {equipment.serialNumber}
-                                      </li>
-                                    ),
-                                  )}
-                                </ul>
-                              </div>
-                            ) : null}
-
-                            {item.imageUrls?.length > 0 ? (
-                              <div className="images-grid">
-                                {item.imageUrls.map((url, imageIndex) => (
-                                  <button
-                                    key={url}
-                                    type="button"
-                                    className="thumb-button"
-                                    onClick={() =>
-                                      openImagePreview(item.imageUrls, imageIndex)
-                                    }
-                                  >
-                                    <img
-                                      src={url}
-                                      alt="Bằng chứng scam"
-                                      className="thumb"
-                                    />
-                                  </button>
-                                ))}
-                              </div>
-                            ) : null}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className="empty-state success-state">
-                        Chưa có tố cáo nào cho CCCD này trong hệ thống.
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="empty-state">
-                    Nhập CCCD/SĐT/tên để kiểm tra lịch sử tố cáo trước khi xác
-                    nhận giao dịch.
-                  </div>
-                )}
-              </section>
-            ) : (
-              <section className="panel">
-                <div className="panel-header">
-                  <div>
-                    <p className="section-kicker">Báo cáo cộng đồng</p>
-                    <h2>Gửi tố cáo mới</h2>
-                  </div>
-                </div>
-
-                <form onSubmit={handleSubmitReport} className="form">
-                  <label htmlFor="reportCccd">CCCD đối tượng bị tố cáo</label>
-                  <input
-                    id="reportCccd"
-                    type="text"
-                    value={reportForm.cccd}
-                    onChange={(event) =>
-                      updateReportField(
-                        "cccd",
-                        event.target.value.replace(/\D/g, ""),
-                      )
-                    }
-                    maxLength={12}
-                    placeholder="Nhập đúng 12 chữ số CCCD"
-                    required
-                  />
-
-                  <div className="form-grid">
-                    <div>
-                      <label htmlFor="scammerName">Tên đối tượng lừa đảo</label>
-                      <input
-                        id="scammerName"
-                        type="text"
-                        value={reportForm.scammerName}
-                        onChange={(event) =>
-                          updateReportField("scammerName", event.target.value)
-                        }
-                        placeholder="VD: Nguyễn Văn A"
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="scammerPhone">Số đối tượng lừa đảo</label>
-                      <input
-                        id="scammerPhone"
-                        type="text"
-                        value={reportForm.scammerPhone}
-                        onChange={(event) =>
-                          updateReportField("scammerPhone", event.target.value)
-                        }
-                        placeholder="SĐT đối tượng (nếu có)"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="form-grid">
-                    <div>
-                      <label htmlFor="submitterName">Tên người đăng</label>
-                      <input
-                        id="submitterName"
-                        type="text"
-                        value={reportForm.submitterName}
-                        onChange={(event) =>
-                          updateReportField("submitterName", event.target.value)
-                        }
-                        placeholder="Tên của bạn (không bắt buộc)"
-                      />
-                    </div>
-
-                    <div>
-                      <label htmlFor="submitterPhone">SĐT người đăng</label>
-                      <input
-                        id="submitterPhone"
-                        type="text"
-                        value={reportForm.submitterPhone}
-                        onChange={(event) =>
-                          updateReportField("submitterPhone", event.target.value)
-                        }
-                        placeholder="Không bắt buộc"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="equipment-section">
-                    <div className="equipment-header">
-                      <label>Thiết bị liên quan (nhiều máy)</label>
-                      <button
-                        type="button"
-                        className="secondary-btn"
-                        onClick={addEquipmentItem}
-                      >
-                        + Thêm máy
-                      </button>
-                    </div>
-                    <div className="equipment-list">
-                      {equipmentItems.map((item, index) => (
-                        <div
-                          key={`equipment-${index}`}
-                          className="equipment-item-row"
-                        >
-                          <input
-                            type="text"
-                            value={item.deviceName}
-                            onChange={(event) =>
-                              updateEquipmentItem(
-                                index,
-                                "deviceName",
-                                event.target.value,
-                              )
-                            }
-                            placeholder="Tên máy (VD: Canon R6, Sony A7IV...)"
-                          />
-                          <input
-                            type="text"
-                            value={item.serialNumber}
-                            onChange={(event) =>
-                              updateEquipmentItem(
-                                index,
-                                "serialNumber",
-                                event.target.value,
-                              )
-                            }
-                            placeholder="Số seri máy"
-                          />
-                          <button
-                            type="button"
-                            className="danger-btn"
-                            onClick={() => removeEquipmentItem(index)}
-                            disabled={equipmentItems.length === 1}
-                          >
-                            Xóa
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <label htmlFor="reportContent">Nội dung tố cáo</label>
-                  <textarea
-                    id="reportContent"
-                    rows={5}
-                    value={reportForm.description}
-                    onChange={(event) =>
-                      updateReportField("description", event.target.value)
-                    }
-                    placeholder="Mô tả cách thức lừa đảo, thời gian, thiết bị liên quan, link chat, bằng chứng..."
-                    required
-                  />
-
-                  <label htmlFor="reportImages">Ảnh bằng chứng</label>
-                  <input
-                    id="reportImages"
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleImageChange}
-                  />
-                  <p className="hint">
-                    Tối đa {MAX_IMAGES} ảnh, mỗi ảnh không vượt quá{" "}
-                    {MAX_IMAGE_MB}MB.
-                  </p>
-
-                  {reportImages.length > 0 ? (
-                    <div className="image-preview-grid">
-                      {reportImages.map((file) => (
-                        <div
-                          key={file.name + file.lastModified}
-                          className="image-preview-item"
-                        >
-                          <div className="image-icon">🖼️</div>
-                          <div>
-                            <p className="image-name">{file.name}</p>
-                            <p className="image-size">
-                              {formatFileSize(file.size)}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  <button
-                    type="submit"
-                    className="primary-btn full"
-                    disabled={isSubmitting}
-                  >
-                    {isSubmitting ? "Đang gửi tố cáo..." : "Gửi tố cáo"}
-                  </button>
-                </form>
-
-                {reportError ? (
-                  <div className="alert alert-error">{reportError}</div>
-                ) : null}
-                {reportSuccess ? (
-                  <div className="alert alert-success">{reportSuccess}</div>
-                ) : null}
-              </section>
-            )}
-          </div>
-
-          <aside className="sidebar-card">
-            <div className="sidebar-section">
-              <p className="section-kicker">Toàn bộ dữ liệu</p>
-              <h2>Tất cả vụ scam</h2>
-            </div>
-
-            {reports.length === 0 ? (
-              <div className="empty-state">Chưa có dữ liệu.</div>
-            ) : (
-              <>
-                <ul className="latest-list">
-                  {paginatedReports.map((item) => (
-                  <li key={item.id} className="mini-report-card">
-                    <div className="report-top">
-                      <div>
-                        <strong>{item.scammerName}</strong>
-                        <p className="report-date">{formatDate(item.createdAt)}</p>
-                      </div>
-                    </div>
-
-                    <div className="report-meta-grid">
-                      <div className="report-meta-item">
-                        <p className="report-meta-label">CCCD</p>
-                        <p className="report-meta-value">{item.cccd}</p>
-                      </div>
-                      <div className="report-meta-item">
-                        <p className="report-meta-label">
-                          Số đối tượng lừa đảo
-                        </p>
-                        <p className="report-meta-value">
-                          {item.scammerPhone?.trim() || "Không cung cấp"}
-                        </p>
-                      </div>
-                      {hasSubmitterInfo(item) ? (
-                        <>
-                          <div className="report-meta-item">
-                            <p className="report-meta-label">Tên người đăng</p>
-                            <p className="report-meta-value">
-                              {item.submitterName?.trim() || "Không cung cấp"}
-                            </p>
-                          </div>
-                          <div className="report-meta-item">
-                            <p className="report-meta-label">SĐT người đăng</p>
-                            <p className="report-meta-value">
-                              {item.submitterPhone?.trim() || "Không cung cấp"}
-                            </p>
-                          </div>
-                        </>
-                      ) : null}
-                    </div>
-
-                    <p className="mini-description">{item.description}</p>
-
-                    {item.equipmentItems?.length > 0 ? (
-                      <div className="equipment-display">
-                        <p className="equipment-title">Thiết bị liên quan</p>
-                        <ul className="equipment-display-list">
-                          {item.equipmentItems.map((equipment, index) => (
-                            <li
-                              key={`${item.id}-latest-equipment-${index}`}
-                              className="equipment-pill"
-                            >
-                              {equipment.deviceName} - S/N:{" "}
-                              {equipment.serialNumber}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-
-                    {item.imageUrls?.length > 0 ? (
-                      <div className="images-grid compact">
-                        {item.imageUrls.map((url, imageIndex) => (
-                          <button
-                            key={url}
-                            type="button"
-                            className="thumb-button"
-                            onClick={() =>
-                              openImagePreview(item.imageUrls, imageIndex)
-                            }
-                          >
-                            <img
-                              src={url}
-                              alt="Bằng chứng scam"
-                              className="thumb"
-                            />
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </li>
-                  ))}
-                </ul>
-
-                <div className="pagination-wrap">
-                  <button
-                    type="button"
-                    className="secondary-btn"
-                    onClick={() => setHomePage((prev) => Math.max(prev - 1, 1))}
-                    disabled={homePage === 1}
-                  >
-                    Trước
-                  </button>
-                  <p className="pagination-text">
-                    Trang {homePage}/{totalHomePages}
-                  </p>
-                  <button
-                    type="button"
-                    className="secondary-btn"
-                    onClick={() =>
-                      setHomePage((prev) => Math.min(prev + 1, totalHomePages))
-                    }
-                    disabled={homePage === totalHomePages}
-                  >
-                    Sau
-                  </button>
-                </div>
-              </>
-            )}
-          </aside>
-        </section>
+  const searchPanel = (
+    <div className="fade-in">
+      <div style={{ marginBottom: 24 }}>
+        <span className="kicker">Kiểm tra trước khi giao máy</span>
+        <Title level={4} style={{ margin: 0 }}>
+          Tra cứu CCCD, SĐT hoặc tên
+        </Title>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Nhập thông tin để kiểm tra lịch sử tố cáo trong hệ thống
+        </Text>
       </div>
 
-      {previewImageUrl ? (
-        <div
-          className="image-modal-overlay"
-          role="presentation"
-          onClick={closeImagePreview}
-        >
-          <div
-            className="image-modal-content"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Xem ảnh bằng chứng"
-            onClick={(event) => event.stopPropagation()}
+      <div className="premium-search" style={{ marginBottom: 20 }}>
+        <Input.Search
+          size="large"
+          value={queryKeyword}
+          onChange={(e) => setQueryKeyword(e.target.value)}
+          onSearch={handleCheck}
+          placeholder="Nhập CCCD, số điện thoại hoặc tên..."
+          enterButton="Kiểm tra"
+        />
+      </div>
+
+      {searchError && (
+        <Alert
+          type="warning"
+          message={searchError}
+          showIcon
+          closable
+          onClose={() => setSearchError("")}
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
+      {searchResult ? (
+        <div className="fade-in">
+          {/* Result header */}
+          <Card
+            style={{ marginBottom: 16, borderRadius: 16, border: "1px solid #e2e8f0" }}
+            styles={{ body: { padding: "18px 22px" } }}
           >
-            <button
-              type="button"
-              className="image-modal-close"
-              onClick={closeImagePreview}
-            >
-              Đóng
-            </button>
-            {previewImages.length > 1 ? (
-              <>
-                <button
-                  type="button"
-                  className="image-modal-nav image-modal-nav-left"
-                  onClick={goToPreviousPreviewImage}
-                  aria-label="Ảnh trước"
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                <button
-                  type="button"
-                  className="image-modal-nav image-modal-nav-right"
-                  onClick={goToNextPreviewImage}
-                  aria-label="Ảnh sau"
-                >
-                  <ChevronRight size={18} />
-                </button>
-              </>
-            ) : null}
-            <img
-              src={previewImageUrl}
-              alt="Ảnh bằng chứng phóng to"
-              className="image-modal-preview"
-            />
-            <p className="image-modal-counter">
-              Ảnh {previewImageIndex + 1}/{previewImages.length}
-            </p>
-          </div>
-        </div>
-      ) : null}
+            <Flex justify="space-between" align="center" wrap gap={12}>
+              <Space direction="vertical" size={2}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Kết quả tra cứu cho
+                </Text>
+                <Title level={4} style={{ margin: 0, fontFamily: "monospace" }}>
+                  {queryKeyword}
+                </Title>
+              </Space>
+              <div className={getRiskLevel(searchResult.length).badgeClass}>
+                {getRiskLevel(searchResult.length).icon}{" "}
+                {getRiskLevel(searchResult.length).label}
+              </div>
+            </Flex>
+          </Card>
 
-      {selectedReport ? (
-        <div
-          className="report-modal-overlay"
-          role="presentation"
-          onClick={() => setSelectedReport(null)}
-        >
-          <div
-            className="report-modal-content"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Chi tiết tố cáo"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="report-modal-header">
-              <div>
-                <p className="section-kicker">Chi tiết đầy đủ</p>
-                <h3>{selectedReport.scammerName || "Không rõ đối tượng"}</h3>
-                <p className="report-date">{formatDate(selectedReport.createdAt)}</p>
-              </div>
-              <button
-                type="button"
-                className="secondary-btn"
-                onClick={() => setSelectedReport(null)}
-              >
-                Đóng
-              </button>
-            </div>
+          {/* Metrics */}
+          <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>
+            <Col xs={24} sm={8}>
+              <Card size="small" className="stat-card" style={{ borderRadius: 14 }}>
+                <Statistic
+                  title="Tổng tố cáo khớp"
+                  value={searchResult.length}
+                  prefix={<AlertOutlined style={{ color: "#4f46e5" }} />}
+                  valueStyle={{ color: "#0f172a", fontWeight: 800 }}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Card size="small" className="stat-card" style={{ borderRadius: 14 }}>
+                <Statistic
+                  title="Bằng chứng"
+                  value={totalEvidenceInSearch}
+                  prefix={<CameraOutlined style={{ color: "#4f46e5" }} />}
+                  valueStyle={{ color: "#0f172a", fontWeight: 800 }}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Card size="small" className="stat-card" style={{ borderRadius: 14 }}>
+                <Statistic
+                  title="Tố cáo gần nhất"
+                  value={latestFoundAt || "—"}
+                  valueStyle={{ fontSize: 14, color: "#0f172a", fontWeight: 700 }}
+                  prefix={<CalendarOutlined style={{ color: "#4f46e5" }} />}
+                />
+              </Card>
+            </Col>
+          </Row>
 
-            <div className="report-modal-meta-grid">
-              <div className="report-modal-meta-item">
-                <IdCard size={16} />
-                <div>
-                  <p>CCCD</p>
-                  <strong>{selectedReport.cccd || "Không cung cấp"}</strong>
-                </div>
-              </div>
-              <div className="report-modal-meta-item">
-                <Phone size={16} />
-                <div>
-                  <p>SĐT đối tượng</p>
-                  <strong>
-                    {selectedReport.scammerPhone?.trim() || "Không cung cấp"}
-                  </strong>
-                </div>
-              </div>
-              {hasSubmitterInfo(selectedReport) ? (
-                <>
-                  <div className="report-modal-meta-item">
-                    <UserRound size={16} />
-                    <div>
-                      <p>Người đăng</p>
-                      <strong>
-                        {selectedReport.submitterName?.trim() || "Không cung cấp"}
-                      </strong>
-                    </div>
+          {/* Result list */}
+          {searchResult.length > 0 ? (
+            <List
+              dataSource={searchResult}
+              rowKey="id"
+              split={false}
+              renderItem={(item) => (
+                <List.Item style={{ padding: "6px 0", border: "none" }}>
+                  <div style={{ width: "100%" }}>
+                    <ReportCard item={item} onViewDetail={setSelectedReport} />
                   </div>
-                  <div className="report-modal-meta-item">
-                    <Phone size={16} />
-                    <div>
-                      <p>SĐT người đăng</p>
-                      <strong>
-                        {selectedReport.submitterPhone?.trim() ||
-                          "Không cung cấp"}
-                      </strong>
-                    </div>
-                  </div>
-                </>
-              ) : null}
-            </div>
-
-            <div className="report-modal-section">
-              <p className="report-modal-title">Nội dung tố cáo</p>
-              <p className="report-description">
-                {selectedReport.description || "Không có nội dung"}
-              </p>
-            </div>
-
-            {selectedReport.equipmentItems?.length > 0 ? (
-              <div className="report-modal-section">
-                <p className="report-modal-title">Thiết bị liên quan</p>
-                <ul className="equipment-display-list">
-                  {selectedReport.equipmentItems.map((equipment, index) => (
-                    <li
-                      key={`${selectedReport.id}-modal-equipment-${index}`}
-                      className="equipment-pill"
-                    >
-                      {equipment.deviceName} - S/N: {equipment.serialNumber}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            <div className="report-modal-section">
-              <p className="report-modal-title">Ảnh bằng chứng</p>
-              {selectedReport.imageUrls?.length > 0 ? (
-                <div className="images-grid">
-                  {selectedReport.imageUrls.map((url, imageIndex) => (
-                    <button
-                      key={url}
-                      type="button"
-                      className="thumb-button"
-                      onClick={() =>
-                        openImagePreview(selectedReport.imageUrls, imageIndex)
-                      }
-                    >
-                      <img src={url} alt="Bằng chứng scam" className="thumb" />
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="report-modal-empty">
-                  <CircleAlert size={16} />
-                  Chưa có ảnh bằng chứng.
-                </div>
+                </List.Item>
               )}
-            </div>
-          </div>
+            />
+          ) : (
+            <Alert
+              type="success"
+              message="Không tìm thấy tố cáo nào cho thông tin này."
+              description="Thông tin này chưa xuất hiện trong hệ thống cảnh báo."
+              icon={<CheckCircleOutlined />}
+              showIcon
+              style={{ borderRadius: 14 }}
+            />
+          )}
         </div>
-      ) : null}
-    </main>
+      ) : (
+        <div className="empty-search-state">
+          <div className="empty-search-icon">
+            <FileSearchOutlined />
+          </div>
+          <Title level={5} style={{ margin: "0 0 6px", color: "#475569" }}>
+            Chưa có tra cứu nào
+          </Title>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            Nhập CCCD / SĐT / tên vào ô tìm kiếm để kiểm tra lịch sử tố cáo
+          </Text>
+        </div>
+      )}
+    </div>
+  );
+
+  /* ══════════════════════════════════════════
+     REPORT PANEL
+     ══════════════════════════════════════════ */
+
+  const reportPanel = (
+    <div className="fade-in">
+      <div style={{ marginBottom: 24 }}>
+        <span className="kicker">Báo cáo cộng đồng</span>
+        <Title level={4} style={{ margin: 0 }}>
+          Gửi tố cáo mới
+        </Title>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Thông tin sẽ giúp cộng đồng phòng tránh scam khi cho thuê máy ảnh
+        </Text>
+      </div>
+
+      <Form layout="vertical" onFinish={handleSubmitReport} className="premium-form">
+        {/* ── Thông tin đối tượng ── */}
+        <Card
+          size="small"
+          style={{ marginBottom: 20, borderRadius: 14, background: "#fafafe", border: "1px solid #f1f5f9" }}
+          styles={{ body: { padding: 18 } }}
+        >
+          <Text strong style={{ fontSize: 13, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", display: "block", marginBottom: 14 }}>
+            <SafetyOutlined style={{ marginRight: 6 }} />
+            Thông tin đối tượng bị tố cáo
+          </Text>
+
+          <Form.Item label="CCCD (12 chữ số)" required style={{ marginBottom: 14 }}>
+            <Input
+              prefix={<IdcardOutlined style={{ color: "#94a3b8" }} />}
+              size="large"
+              value={reportForm.cccd}
+              onChange={(e) => updateReportField("cccd", e.target.value.replace(/\D/g, ""))}
+              maxLength={12}
+              placeholder="Nhập CCCD đối tượng"
+              showCount
+              style={{ fontFamily: "monospace" }}
+            />
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Họ tên đối tượng" style={{ marginBottom: 0 }}>
+                <Input
+                  prefix={<UserOutlined style={{ color: "#94a3b8" }} />}
+                  value={reportForm.scammerName}
+                  onChange={(e) => updateReportField("scammerName", e.target.value)}
+                  placeholder="VD: Nguyễn Văn A"
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="SĐT đối tượng" style={{ marginBottom: 0 }}>
+                <Input
+                  prefix={<PhoneOutlined style={{ color: "#94a3b8" }} />}
+                  value={reportForm.scammerPhone}
+                  onChange={(e) => updateReportField("scammerPhone", e.target.value)}
+                  placeholder="Nếu có"
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Card>
+
+        {/* ── Người đăng ── */}
+        <Card
+          size="small"
+          style={{ marginBottom: 20, borderRadius: 14, background: "#fafafe", border: "1px solid #f1f5f9" }}
+          styles={{ body: { padding: 18 } }}
+        >
+          <Text strong style={{ fontSize: 13, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", display: "block", marginBottom: 14 }}>
+            <TeamOutlined style={{ marginRight: 6 }} />
+            Thông tin người đăng (không bắt buộc)
+          </Text>
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Họ tên bạn" style={{ marginBottom: 0 }}>
+                <Input
+                  prefix={<UserOutlined style={{ color: "#94a3b8" }} />}
+                  value={reportForm.submitterName}
+                  onChange={(e) => updateReportField("submitterName", e.target.value)}
+                  placeholder="Tên của bạn"
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="SĐT liên hệ" style={{ marginBottom: 0 }}>
+                <Input
+                  prefix={<PhoneOutlined style={{ color: "#94a3b8" }} />}
+                  value={reportForm.submitterPhone}
+                  onChange={(e) => updateReportField("submitterPhone", e.target.value)}
+                  placeholder="Không bắt buộc"
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Card>
+
+        {/* ── Thiết bị ── */}
+        <Card
+          size="small"
+          style={{ marginBottom: 20, borderRadius: 14, background: "#fafafe", border: "1px solid #f1f5f9" }}
+          styles={{ body: { padding: 18 } }}
+        >
+          <Flex justify="space-between" align="center" style={{ marginBottom: 14 }}>
+            <Text strong style={{ fontSize: 13, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              <CameraOutlined style={{ marginRight: 6 }} />
+              Thiết bị liên quan
+            </Text>
+            <Button
+              size="small"
+              type="dashed"
+              icon={<PlusOutlined />}
+              onClick={addEquipmentItem}
+              disabled={equipmentItems.length >= MAX_EQUIPMENT_ITEMS}
+            >
+              Thêm máy
+            </Button>
+          </Flex>
+
+          {equipmentItems.map((item, index) => (
+            <Row key={index} gutter={10} style={{ marginBottom: index < equipmentItems.length - 1 ? 10 : 0 }}>
+              <Col flex="1">
+                <Input
+                  value={item.deviceName}
+                  onChange={(e) => updateEquipmentItem(index, "deviceName", e.target.value)}
+                  placeholder="Tên máy (Canon R6, Sony A7IV...)"
+                  prefix={<CameraOutlined style={{ color: "#94a3b8" }} />}
+                />
+              </Col>
+              <Col flex="1">
+                <Input
+                  value={item.serialNumber}
+                  onChange={(e) => updateEquipmentItem(index, "serialNumber", e.target.value)}
+                  placeholder="Số seri"
+                  prefix={<NumberOutlined style={{ color: "#94a3b8" }} />}
+                />
+              </Col>
+              <Col flex="none">
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() => removeEquipmentItem(index)}
+                  disabled={equipmentItems.length === 1}
+                />
+              </Col>
+            </Row>
+          ))}
+        </Card>
+
+        {/* ── Nội dung ── */}
+        <Form.Item label="Nội dung tố cáo" required>
+          <Input.TextArea
+            rows={5}
+            value={reportForm.description}
+            onChange={(e) => updateReportField("description", e.target.value)}
+            placeholder="Mô tả cách thức lừa đảo, thời gian, thiết bị, link chat, bằng chứng..."
+            showCount
+            style={{ borderRadius: 14 }}
+          />
+        </Form.Item>
+
+        {/* ── Upload ── */}
+        <Form.Item label="Ảnh bằng chứng">
+          <div className="premium-upload">
+            <Upload.Dragger
+              multiple
+              accept="image/*"
+              fileList={reportImages}
+              onChange={handleImageChange}
+              beforeUpload={() => false}
+              maxCount={MAX_IMAGES}
+              listType="picture"
+            >
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined />
+              </p>
+              <p className="ant-upload-text" style={{ fontWeight: 600 }}>
+                Kéo thả ảnh vào đây hoặc click để chọn
+              </p>
+              <p className="ant-upload-hint">
+                Tối đa {MAX_IMAGES} ảnh, mỗi ảnh ≤ {MAX_IMAGE_MB}MB
+              </p>
+            </Upload.Dragger>
+          </div>
+        </Form.Item>
+
+        <Button
+          type="primary"
+          htmlType="submit"
+          block
+          icon={<SendOutlined />}
+          loading={isSubmitting}
+          className="submit-btn"
+        >
+          {isSubmitting ? "Đang gửi..." : "Gửi tố cáo"}
+        </Button>
+      </Form>
+
+      {reportError && (
+        <Alert type="error" message={reportError} showIcon closable onClose={() => setReportError("")} style={{ marginTop: 16, borderRadius: 12 }} />
+      )}
+      {reportSuccess && (
+        <Alert type="success" message={reportSuccess} showIcon closable onClose={() => setReportSuccess("")} style={{ marginTop: 16, borderRadius: 12 }} />
+      )}
+    </div>
+  );
+
+  /* ══════════════════════════════════════════
+     ALL REPORTS PANEL
+     ══════════════════════════════════════════ */
+
+  const allReportsPanel = (
+    <div className="fade-in">
+      <div style={{ marginBottom: 24 }}>
+        <span className="kicker">Cơ sở dữ liệu cộng đồng</span>
+        <Title level={4} style={{ margin: 0 }}>
+          Tất cả tố cáo scam
+        </Title>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Danh sách toàn bộ tố cáo đã được ghi nhận trong hệ thống
+        </Text>
+      </div>
+
+      {reports.length === 0 ? (
+        <Empty
+          description="Chưa có dữ liệu tố cáo nào"
+          style={{ padding: "60px 0" }}
+        />
+      ) : (
+        <>
+          <Row gutter={[16, 16]}>
+            {paginatedReports.map((item) => (
+              <Col xs={24} md={12} key={item.id}>
+                <ReportCard item={item} onViewDetail={setSelectedReport} />
+              </Col>
+            ))}
+          </Row>
+
+          <Flex justify="center" style={{ marginTop: 24 }}>
+            <Pagination
+              current={homePage}
+              total={reports.length}
+              pageSize={HOME_REPORTS_PER_PAGE}
+              onChange={setHomePage}
+              showSizeChanger={false}
+              showTotal={(total) => (
+                <Text type="secondary" style={{ fontSize: 13 }}>{total} tố cáo</Text>
+              )}
+            />
+          </Flex>
+        </>
+      )}
+    </div>
+  );
+
+  /* ══════════════════════════════════════════
+     RENDER
+     ══════════════════════════════════════════ */
+
+  return (
+    <Layout style={{ minHeight: "100vh", background: "transparent" }}>
+      {contextHolder}
+      <div className="app-bg" />
+
+      <Content
+        style={{
+          position: "relative",
+          zIndex: 1,
+          maxWidth: 1360,
+          margin: "0 auto",
+          width: "100%",
+          padding: screens.md ? "36px 28px 0" : "20px 14px 0",
+        }}
+      >
+        {/* ══ HERO ══ */}
+        <Card
+          className="hero-card"
+          style={{ borderRadius: 24, marginBottom: 28 }}
+          styles={{ body: { padding: screens.md ? 36 : 22, position: "relative", zIndex: 1 } }}
+        >
+          <div className="hero-badge">
+            <SafetyCertificateOutlined />
+            Camera Rental Safety
+          </div>
+
+          <Title
+            level={screens.md ? 1 : 2}
+            className="hero-title"
+          >
+            Check scam CCCD khi thuê máy ảnh
+          </Title>
+
+          <Paragraph type="secondary" className="hero-subtitle">
+            Hệ thống phi lợi nhuận giúp các shop cho thuê máy ảnh kiểm tra
+            rủi ro scam trước khi giao máy. Tra cứu nhanh lịch sử tố cáo để
+            giảm thiểu thất thoát.
+          </Paragraph>
+
+          <div className="hero-stats-row">
+            <Card size="small" className="hero-stat-card" style={{ borderRadius: 14 }}>
+              <Statistic
+                title="Tổng tố cáo"
+                value={totalReports}
+                prefix={<AlertOutlined style={{ color: "#4f46e5" }} />}
+                valueStyle={{ fontWeight: 800, color: "#0f172a" }}
+              />
+            </Card>
+            <Card size="small" className="hero-stat-card" style={{ borderRadius: 14 }}>
+              <Statistic
+                title="Đối tượng"
+                value={new Set(reports.map((r) => r.cccd)).size}
+                prefix={<IdcardOutlined style={{ color: "#06b6d4" }} />}
+                valueStyle={{ fontWeight: 800, color: "#0f172a" }}
+              />
+            </Card>
+            <Card size="small" className="hero-stat-card" style={{ borderRadius: 14 }}>
+              <Statistic
+                title="Bằng chứng"
+                value={reports.reduce((s, r) => s + (r.imageUrls?.length ?? 0), 0)}
+                prefix={<PictureOutlined style={{ color: "#8b5cf6" }} />}
+                valueStyle={{ fontWeight: 800, color: "#0f172a" }}
+              />
+            </Card>
+          </div>
+        </Card>
+
+        {/* ══ ERRORS / LOADING ══ */}
+        {dataError && (
+          <Alert
+            type="error"
+            message={dataError}
+            showIcon
+            style={{ marginBottom: 20, borderRadius: 14 }}
+          />
+        )}
+
+        {isLoadingReports && (
+          <Card style={{ textAlign: "center", marginBottom: 24, borderRadius: 16 }}>
+            <Spin size="large" />
+            <Paragraph type="secondary" style={{ marginTop: 14, marginBottom: 0 }}>
+              Đang tải dữ liệu...
+            </Paragraph>
+          </Card>
+        )}
+
+        {/* ══ MAIN CONTENT ══ */}
+        <Card
+          className="glass-card"
+          style={{ borderRadius: 20 }}
+          styles={{ body: { padding: screens.md ? 28 : 18 } }}
+        >
+          <Tabs
+            activeKey={activeTab}
+            onChange={setActiveTab}
+            className="premium-tabs"
+            items={[
+              {
+                key: "all",
+                label: (
+                  <Space>
+                    <DatabaseOutlined />
+                    <span>Tất cả tố cáo</span>
+                  </Space>
+                ),
+                children: allReportsPanel,
+              },
+              {
+                key: "check",
+                label: (
+                  <Space>
+                    <SearchOutlined />
+                    <span>Tra cứu</span>
+                  </Space>
+                ),
+                children: searchPanel,
+              },
+              {
+                key: "report",
+                label: (
+                  <Space>
+                    <SendOutlined />
+                    <span>Gửi tố cáo</span>
+                  </Space>
+                ),
+                children: reportPanel,
+              },
+            ]}
+          />
+        </Card>
+      </Content>
+
+      {/* ══ FOOTER ══ */}
+      <div className="app-footer">
+        <Text className="footer-brand">
+          <SafetyCertificateOutlined style={{ marginRight: 6 }} />
+          Camera Rental Safety
+        </Text>
+        <Paragraph className="footer-sub">
+          Hệ thống phi lợi nhuận bảo vệ cộng đồng cho thuê máy ảnh
+        </Paragraph>
+      </div>
+
+      {/* ══ DETAIL MODAL ══ */}
+      <ReportDetailModal
+        report={selectedReport}
+        open={Boolean(selectedReport)}
+        onClose={() => setSelectedReport(null)}
+      />
+    </Layout>
   );
 }
 
