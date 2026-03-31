@@ -13,11 +13,11 @@ import {
 } from "lucide-react";
 import "./App.css";
 import {
-  hasSupabaseConfig,
-  supabase,
-  SUPABASE_BUCKET,
-  SUPABASE_REPORTS_TABLE,
-} from "./supabase";
+  createReport,
+  fetchReports,
+  hasApiConfig,
+  uploadEvidenceFile,
+} from "./api";
 
 const MAX_IMAGES = 6;
 const MAX_IMAGE_MB = 5;
@@ -43,31 +43,34 @@ const getRiskLevel = (count) => {
 };
 
 const normalizeReport = (row) => ({
-  id: row.id,
-  cccd: row.cccd,
-  scammerName: row.reporter_name,
-  scammerPhone: row.phone,
-  submitterName: row.submitter_name ?? "",
-  submitterPhone: row.submitter_phone ?? "",
-  description: row.description,
-  imageUrls: row.image_urls ?? [],
-  equipmentItems: Array.isArray(row.equipment_items)
-    ? row.equipment_items
+  id: row.id ?? row._id ?? row.reportId ?? crypto.randomUUID(),
+  cccd: row.cccd ?? "",
+  scammerName: row.reporter_name ?? row.scammerName ?? row.reporterName ?? "",
+  scammerPhone: row.phone ?? row.scammerPhone ?? "",
+  submitterName: row.submitter_name ?? row.submitterName ?? "",
+  submitterPhone: row.submitter_phone ?? row.submitterPhone ?? "",
+  description: row.description ?? "",
+  imageUrls: row.image_urls ?? row.imageUrls ?? [],
+  equipmentItems: Array.isArray(row.equipment_items ?? row.equipmentItems)
+    ? (row.equipment_items ?? row.equipmentItems)
         .map((item) => ({
           deviceName: String(item?.deviceName ?? "").trim(),
           serialNumber: String(item?.serialNumber ?? "").trim(),
         }))
         .filter((item) => item.deviceName && item.serialNumber)
     : [],
-  createdAt: row.created_at,
-  createdAtMs: row.created_at_ms,
+  createdAt: row.created_at ?? row.createdAt ?? new Date().toISOString(),
+  createdAtMs:
+    row.created_at_ms ??
+    row.createdAtMs ??
+    new Date(row.created_at ?? row.createdAt ?? Date.now()).getTime(),
 });
 
 function App() {
   const [activeTab, setActiveTab] = useState("check");
   const [reports, setReports] = useState([]);
   const [isLoadingReports, setIsLoadingReports] = useState(true);
-  const [supabaseError, setSupabaseError] = useState("");
+  const [dataError, setDataError] = useState("");
 
   const [queryKeyword, setQueryKeyword] = useState("");
   const [searchResult, setSearchResult] = useState(null);
@@ -94,22 +97,17 @@ function App() {
   const [homePage, setHomePage] = useState(1);
 
   const loadReports = useCallback(async () => {
-    if (!supabase) return;
-
-    const { data, error } = await supabase
-      .from(SUPABASE_REPORTS_TABLE)
-      .select("*")
-      .order("created_at_ms", { ascending: false });
-
-    if (error) throw error;
-
-    setReports((data ?? []).map(normalizeReport));
+    const data = await fetchReports();
+    const normalizedReports = (data ?? [])
+      .map(normalizeReport)
+      .sort((a, b) => b.createdAtMs - a.createdAtMs);
+    setReports(normalizedReports);
   }, []);
 
   useEffect(() => {
-    if (!hasSupabaseConfig || !supabase) {
-      setSupabaseError(
-        "Chưa cấu hình Supabase. Hãy tạo file .env từ .env.example để kết nối Database và Storage.",
+    if (!hasApiConfig) {
+      setDataError(
+        "Chưa cấu hình API. Hãy tạo file .env từ .env.example và khai báo VITE_API_BASE_URL.",
       );
       setIsLoadingReports(false);
       return;
@@ -118,10 +116,10 @@ function App() {
     const init = async () => {
       try {
         await loadReports();
-        setSupabaseError("");
+        setDataError("");
       } catch {
-        setSupabaseError(
-          "Không đọc được dữ liệu Supabase. Kiểm tra lại schema, RLS và biến môi trường.",
+        setDataError(
+          "Không đọc được dữ liệu từ API public. Kiểm tra lại endpoint và biến môi trường.",
         );
       } finally {
         setIsLoadingReports(false);
@@ -129,30 +127,7 @@ function App() {
     };
 
     init();
-    const realtimeChannel = supabase
-      .channel("scam-cccd-realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: SUPABASE_REPORTS_TABLE,
-        },
-        async () => {
-          try {
-            await loadReports();
-          } catch {
-            setSupabaseError(
-              "Không đồng bộ được dữ liệu realtime. Vui lòng tải lại trang.",
-            );
-          }
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(realtimeChannel);
-    };
+    return undefined;
   }, [loadReports]);
 
   const findMatches = useCallback(
@@ -352,8 +327,8 @@ function App() {
     setReportError("");
     setReportSuccess("");
 
-    if (!hasSupabaseConfig || !supabase) {
-      setReportError("Supabase chưa cấu hình đầy đủ, chưa thể gửi tố cáo.");
+    if (!hasApiConfig) {
+      setReportError("API chưa cấu hình đầy đủ, chưa thể gửi tố cáo.");
       return;
     }
 
@@ -388,20 +363,7 @@ function App() {
 
       const imageUrls = await Promise.all(
         reportImages.map(async (file) => {
-          const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-          const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
-          const filePath = `reports/${reportForm.cccd}/${fileName}`;
-
-          const { error: uploadError } = await supabase.storage
-            .from(SUPABASE_BUCKET)
-            .upload(filePath, file, { upsert: false, contentType: file.type });
-
-          if (uploadError) throw uploadError;
-
-          const { data } = supabase.storage
-            .from(SUPABASE_BUCKET)
-            .getPublicUrl(filePath);
-          return data.publicUrl;
+          return uploadEvidenceFile({ file, cccd: reportForm.cccd });
         }),
       );
 
@@ -418,47 +380,7 @@ function App() {
         created_at_ms: Date.now(),
       };
 
-      const { error: insertError } = await supabase
-        .from(SUPABASE_REPORTS_TABLE)
-        .insert(newReport);
-
-      if (insertError) {
-        const isMissingColumnError =
-          /equipment_items|submitter_name|submitter_phone/i.test(
-          insertError.message ?? "",
-        );
-
-        if (!isMissingColumnError) throw insertError;
-
-        const fallbackEquipmentDetails =
-          trimmedEquipmentItems.length > 0
-            ? `\n\nThiết bị liên quan:\n${trimmedEquipmentItems
-                .map(
-                  (item, index) =>
-                    `${index + 1}. ${item.deviceName} - S/N: ${item.serialNumber}`,
-                )
-                .join("\n")}`
-            : "";
-
-        const fallbackSubmitterDetails =
-          reportForm.submitterName.trim() || reportForm.submitterPhone.trim()
-            ? `\n\nThông tin người đăng:\n- Tên: ${reportForm.submitterName.trim() || "Không cung cấp"}\n- SĐT: ${reportForm.submitterPhone.trim() || "Không cung cấp"}`
-            : "";
-
-        const { error: retryInsertError } = await supabase
-          .from(SUPABASE_REPORTS_TABLE)
-          .insert({
-            cccd: newReport.cccd,
-            reporter_name: newReport.reporter_name,
-            phone: newReport.phone,
-            description: `${newReport.description}${fallbackEquipmentDetails}${fallbackSubmitterDetails}`,
-            image_urls: newReport.image_urls,
-            created_at: newReport.created_at,
-            created_at_ms: newReport.created_at_ms,
-          });
-
-        if (retryInsertError) throw retryInsertError;
-      }
+      await createReport(newReport);
 
       await loadReports();
 
@@ -505,12 +427,12 @@ function App() {
           </div>
         </section>
 
-        {supabaseError ? (
-          <div className="alert alert-error">{supabaseError}</div>
+        {dataError ? (
+          <div className="alert alert-error">{dataError}</div>
         ) : null}
         {isLoadingReports ? (
           <div className="alert alert-info">
-            Đang tải dữ liệu từ Supabase...
+            Đang tải dữ liệu từ API public...
           </div>
         ) : null}
 
