@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { ConfigProvider } from "antd";
+import { ConfigProvider, theme } from "antd";
 import viVN from "antd/locale/vi_VN";
 import "./index.css";
 import App from "./App.jsx";
@@ -13,56 +13,76 @@ createRoot(document.getElementById("root")).render(
     <ConfigProvider
       locale={viVN}
       theme={{
+        algorithm: theme.darkAlgorithm,
         token: {
-          colorPrimary: "#4f46e5",
-          colorInfo: "#4f46e5",
+          colorPrimary: "#6366f1",
+          colorInfo: "#06b6d4",
           colorSuccess: "#10b981",
           colorWarning: "#f59e0b",
-          colorError: "#ef4444",
-          colorLink: "#4f46e5",
+          colorError: "#f43f5e",
+          colorBgBase: "#08090e",
+          colorBgContainer: "#12141f",
+          colorBgElevated: "#1a1d2e",
+          colorBgLayout: "#08090e",
+          colorTextBase: "#f0f2ff",
+          colorTextSecondary: "#8892b0",
+          colorBorder: "rgba(255, 255, 255, 0.07)",
+          colorBorderSecondary: "rgba(255, 255, 255, 0.04)",
           borderRadius: 12,
           fontFamily: FONT,
           fontSize: 14,
           wireframe: false,
-          colorBgContainer: "#ffffff",
-          colorBgElevated: "#ffffff",
-          controlHeight: 40,
-          boxShadow:
-            "0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06)",
-          boxShadowSecondary:
-            "0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.07)",
+          controlHeight: 44,
+          boxShadow: "0 4px 20px rgba(0, 0, 0, 0.5)",
+          boxShadowSecondary: "0 12px 40px rgba(0, 0, 0, 0.6)",
         },
         components: {
           Card: {
             borderRadiusLG: 20,
-            paddingLG: 24,
+            paddingLG: 20,
+            colorBgContainer: "#12141f",
+            colorBorderSecondary: "rgba(255, 255, 255, 0.07)",
           },
           Button: {
             borderRadius: 12,
-            controlHeight: 42,
-            controlHeightLG: 48,
+            controlHeight: 44,
+            controlHeightLG: 52,
             fontWeight: 600,
           },
           Input: {
             borderRadius: 12,
-            controlHeight: 42,
-            controlHeightLG: 48,
+            controlHeight: 44,
+            controlHeightLG: 52,
+            colorBgContainer: "#161824",
+            colorBorder: "rgba(255,255,255,0.1)",
+            activeBorderColor: "#6366f1",
+            hoverBorderColor: "rgba(99, 102, 241, 0.5)",
           },
           Tag: {
             borderRadiusSM: 8,
           },
           Tabs: {
             cardBg: "transparent",
+            itemColor: "#8892b0",
+            itemSelectedColor: "#6366f1",
+            itemHoverColor: "#f0f2ff",
           },
           Modal: {
             borderRadiusLG: 20,
+            colorBgElevated: "#1a1d2e",
           },
           Alert: {
             borderRadiusLG: 14,
           },
           Descriptions: {
             borderRadiusLG: 14,
+            colorBgContainer: "#161824",
           },
+          Typography: {
+            colorTextHeading: "#f0f2ff",
+            colorText: "#f0f2ff",
+            colorTextSecondary: "#8892b0",
+          }
         },
       }}
     >
