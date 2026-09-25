@@ -1,10 +1,14 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 import { ConfigProvider, theme } from "antd";
 import viVN from "antd/locale/vi_VN";
 import "./index.css";
 import App from "./App.jsx";
 import AuthProvider from "./AuthProvider.jsx";
+
+/* Vite BASE_URL kết thúc bằng /, react-router basename thì không. */
+const routerBasename = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
 
 const FONT_SANS =
   '"Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
@@ -85,7 +89,9 @@ createRoot(document.getElementById("root")).render(
       }}
     >
       <AuthProvider>
-        <App />
+        <BrowserRouter basename={routerBasename}>
+          <App />
+        </BrowserRouter>
       </AuthProvider>
     </ConfigProvider>
   </StrictMode>,

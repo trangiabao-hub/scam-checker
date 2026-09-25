@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { NavLink, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import {
   Input,
   Button,
@@ -63,12 +64,12 @@ const EMPTY_VALUE = "Không có";
   biết cần làm gì, người đã đăng nhập thấy "Tài khoản".
 */
 const buildTabs = (isSignedIn) => [
-  { key: "all", label: "Dữ liệu", icon: <DatabaseOutlined /> },
-  { key: "check", label: "Tra cứu", icon: <SearchOutlined /> },
-  { key: "report", label: "Tố cáo", icon: <SendOutlined /> },
+  { key: "all", path: "/", label: "Dữ liệu", icon: <DatabaseOutlined />, end: true },
+  { key: "check", path: "/check", label: "Tra cứu", icon: <SearchOutlined /> },
+  { key: "report", path: "/report", label: "Tố cáo", icon: <SendOutlined /> },
   isSignedIn
-    ? { key: "account", label: "Tài khoản", icon: <AccountIcon /> }
-    : { key: "account", label: "Xác thực", icon: <SafetyCertificateOutlined /> },
+    ? { key: "account", path: "/account", label: "Tài khoản", icon: <AccountIcon /> }
+    : { key: "account", path: "/account", label: "Xác thực", icon: <SafetyCertificateOutlined /> },
 ];
 
 const createEmptyEquipmentItem = () => ({ deviceName: "", serialNumber: "" });
@@ -347,9 +348,9 @@ function ReportCard({ item, onViewDetail }) {
 function App() {
   const [messageApi, contextHolder] = message.useMessage();
   const { isSignedIn } = useAuth();
+  const navigate = useNavigate();
   const tabs = useMemo(() => buildTabs(isSignedIn), [isSignedIn]);
 
-  const [activeTab, setActiveTab] = useState("all");
   const [reports, setReports] = useState([]);
   const [isLoadingReports, setIsLoadingReports] = useState(true);
   const [dataError, setDataError] = useState("");
@@ -521,7 +522,7 @@ function App() {
         setQueryKeyword(cccd || name);
         setSearchResult(merged);
         setSelectedReport(null);
-        setActiveTab("check");
+        navigate("/check");
         setTimeout(() => {
           document
             .getElementById("search-results-section")
@@ -548,7 +549,7 @@ function App() {
         setIsQuickScanning(false);
       }
     },
-    [findMatches, messageApi],
+    [findMatches, messageApi, navigate],
   );
 
   const handleQuickScanInput = (event) => {
@@ -1217,20 +1218,13 @@ function App() {
 
   /* ── Render ──────────────────────────────── */
 
-  const panels = {
-    all: allReportsPanel,
-    check: searchPanel,
-    report: reportPanel,
-    account: <AccountPanel />,
-  };
-
   return (
     <>
       <a className="skip-link" href="#main">
         Tới nội dung chính
       </a>
       <div className="app-backdrop" />
-      <NoticeModal onVerify={() => setActiveTab("account")} />
+      <NoticeModal onVerify={() => navigate("/account")} />
 
       <div className="app-shell">
         {contextHolder}
@@ -1245,16 +1239,15 @@ function App() {
 
           <nav className="header-nav" aria-label="Chuyển mục">
             {tabs.map((tab) => (
-              <button
+              <NavLink
                 key={tab.key}
-                type="button"
+                to={tab.path}
+                end={tab.end}
                 className="header-nav-item"
-                aria-current={activeTab === tab.key ? "page" : undefined}
-                onClick={() => setActiveTab(tab.key)}
               >
                 {tab.icon}
                 {tab.label}
-              </button>
+              </NavLink>
             ))}
           </nav>
 
@@ -1264,7 +1257,13 @@ function App() {
         </header>
 
         <main id="main" className="content">
-          {panels[activeTab]}
+          <Routes>
+            <Route path="/" element={allReportsPanel} />
+            <Route path="/check" element={searchPanel} />
+            <Route path="/report" element={reportPanel} />
+            <Route path="/account" element={<AccountPanel />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </main>
       </div>
 
@@ -1282,16 +1281,15 @@ function App() {
 
       <nav className="bottom-nav" aria-label="Chuyển mục">
         {tabs.map((tab) => (
-          <button
+          <NavLink
             key={tab.key}
-            type="button"
+            to={tab.path}
+            end={tab.end}
             className="bottom-nav-item"
-            aria-current={activeTab === tab.key ? "page" : undefined}
-            onClick={() => setActiveTab(tab.key)}
           >
             <span className="bottom-nav-icon">{tab.icon}</span>
             {tab.label}
-          </button>
+          </NavLink>
         ))}
       </nav>
     </>

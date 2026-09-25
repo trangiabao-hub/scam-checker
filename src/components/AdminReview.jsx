@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Image, Input, Segmented, Spin } from "antd";
+import { Alert, Button, Image, Input, Modal, Segmented, Spin, message } from "antd";
 import {
   CheckOutlined,
+  CheckSquareOutlined,
   CloseOutlined,
   ExportOutlined,
   InboxOutlined,
@@ -34,6 +35,8 @@ export default function AdminReview() {
   const [error, setError] = useState("");
   const [notes, setNotes] = useState({});
   const [busyId, setBusyId] = useState(null);
+  const [isApprovingAll, setIsApprovingAll] = useState(false);
+  const [messageApi, contextHolder] = message.useMessage();
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -67,8 +70,63 @@ export default function AdminReview() {
     }
   };
 
+  const approveAllPending = () => {
+    const pendingCount = Number(stats?.pending ?? 0);
+    if (pendingCount <= 0) {
+      messageApi.info("Không còn hồ sơ nào chờ duyệt.");
+      return;
+    }
+
+    Modal.confirm({
+      title: `Duyệt tất cả ${pendingCount} hồ sơ?`,
+      content:
+        "Mọi shop đang chờ duyệt sẽ được xác thực ngay. Hành động này không hoàn tác được từ đây.",
+      okText: "Duyệt tất cả",
+      cancelText: "Huỷ",
+      okButtonProps: { type: "primary" },
+      onOk: async () => {
+        setError("");
+        setIsApprovingAll(true);
+        try {
+          const data = await adminListShops(token, "PENDING");
+          const pending = data?.shops ?? [];
+          if (pending.length === 0) {
+            messageApi.info("Không còn hồ sơ nào chờ duyệt.");
+            await load();
+            return;
+          }
+
+          let ok = 0;
+          let fail = 0;
+          for (const shop of pending) {
+            try {
+              await adminReviewShop(token, shop.id, { approve: true, note: "" });
+              ok += 1;
+            } catch {
+              fail += 1;
+            }
+          }
+
+          await load();
+          if (fail === 0) {
+            messageApi.success(`Đã duyệt ${ok} hồ sơ.`);
+          } else {
+            messageApi.warning(`Đã duyệt ${ok} hồ sơ, ${fail} hồ sơ thất bại.`);
+          }
+        } catch (e) {
+          setError(e.message || "Không duyệt được tất cả hồ sơ.");
+        } finally {
+          setIsApprovingAll(false);
+        }
+      },
+    });
+  };
+
+  const pendingCount = Number(stats?.pending ?? 0);
+
   return (
     <div>
+      {contextHolder}
       <div className="admin-head">
         <Segmented
           value={status}
@@ -76,12 +134,25 @@ export default function AdminReview() {
           options={FILTERS}
           block
         />
-        {stats && (
-          <div className="page-head-meta" style={{ marginTop: 14 }}>
-            <strong>{stats.pending}</strong>
-            <span>chờ duyệt, {stats.verified} đã duyệt, {stats.rejected} từ chối</span>
-          </div>
-        )}
+        <div className="admin-head-row">
+          {stats && (
+            <div className="page-head-meta">
+              <strong>{stats.pending}</strong>
+              <span>
+                chờ duyệt, {stats.verified} đã duyệt, {stats.rejected} từ chối
+              </span>
+            </div>
+          )}
+          <Button
+            type="primary"
+            icon={<CheckSquareOutlined />}
+            loading={isApprovingAll}
+            disabled={pendingCount <= 0 || isLoading}
+            onClick={approveAllPending}
+          >
+            Duyệt tất cả{pendingCount > 0 ? ` (${pendingCount})` : ""}
+          </Button>
+        </div>
       </div>
 
       {error && (

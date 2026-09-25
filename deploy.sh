@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Deploy scam-checker lên https://faodigital.vn/scam/
-# FE static + (tuỳ chọn) đồng bộ nginx. BE deploy riêng bằng fao_be/deploy.sh.
+# FE static. BE deploy riêng bằng fao_be/deploy.sh.
+#
+# SPA routes: /scam/  /scam/check  /scam/report  /scam/account
+# Nginx location /scam/ cần try_files $uri $uri/ /scam/index.html;
 set -euo pipefail
 
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
@@ -36,6 +39,7 @@ EOF
 
 echo "Verify..."
 curl -sI "https://faodigital.vn/scam/" | head -5 || true
+curl -sI "https://faodigital.vn/scam/check" | head -5 || true
 curl -sI "https://faodigital.vn/scam/index.html" | head -3 || true
 
 echo "Done → https://faodigital.vn/scam/"
