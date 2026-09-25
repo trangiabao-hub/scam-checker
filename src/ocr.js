@@ -1,16 +1,25 @@
-import { createWorker, PSM } from "tesseract.js";
+/*
+  tesseract.js rất nặng và chỉ cần khi người dùng thực sự quét ảnh, nên tải
+  động để nó không nằm trong bundle khởi động của trang.
+*/
+let tesseractPromise = null;
+const loadTesseract = () => {
+  tesseractPromise ??= import("tesseract.js");
+  return tesseractPromise;
+};
 
 let workerPromise = null;
 
 const getWorker = async () => {
   if (!workerPromise) {
     workerPromise = (async () => {
+      const { createWorker, PSM } = await loadTesseract();
       const worker = await createWorker(["vie", "eng"], 1, {
         workerPath:
           "https://unpkg.com/tesseract.js@v5.1.1/dist/worker.min.js",
         corePath:
           "https://unpkg.com/tesseract.js-core@v5.1.1/tesseract-core-simd.wasm.js",
-        // Sử dụng tessdata_fast của Tesseract qua jsDelivr — file .traineddata
+        // Sử dụng tessdata_fast của Tesseract qua jsDelivr, file .traineddata
         // không nén (gzip: false), URL ổn định, vie ~3.8MB.
         langPath:
           "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@main",
@@ -376,6 +385,7 @@ const mergeResults = (...results) => {
 // OCR pass thứ 2 chỉ với ký tự số: cứu trường hợp pass 1 đọc thiếu/sai chữ số
 // CCCD (ví dụ mất số cuối do nhiễu ảnh hoặc do confusion với chữ).
 const recognizeDigits = async (worker, image) => {
+  const { PSM } = await loadTesseract();
   try {
     await worker.setParameters({
       tessedit_char_whitelist: "0123456789 ",

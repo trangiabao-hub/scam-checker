@@ -243,11 +243,11 @@ export default function CccdScanner({
       setEditedResult(normalized);
       if (!data.cccd && !data.fullName) {
         setErrorMsg(
-          "Không trích xuất được CCCD hoặc tên. Vui lòng chụp rõ nét, đủ ánh sáng và toàn bộ thẻ — bạn có thể tự nhập tay bên dưới.",
+          "Không trích xuất được CCCD hoặc tên. Hãy chụp rõ nét, đủ ánh sáng và lấy hết thẻ vào khung. Bạn cũng có thể tự nhập tay bên dưới.",
         );
         return;
       }
-      // Auto-apply mode: dùng cho tab Tra cứu — quét xong là search luôn,
+      // Auto-apply mode: dùng cho tab Tra cứu, quét xong là search luôn,
       // không cần user bấm "Điền vào biểu mẫu".
       if (autoApply) {
         setTimeout(() => {
@@ -279,23 +279,20 @@ export default function CccdScanner({
       onCancel={onClose}
       title={
         <Space>
-          <ScanOutlined style={{ color: "#4f46e5" }} />
-          <span>Quét CCCD/VNeID bằng AI</span>
+          <ScanOutlined style={{ color: "var(--text-3)" }} />
+          <span>Quét CCCD/VNeID</span>
         </Space>
       }
       footer={null}
       width={780}
       centered
-      destroyOnClose
+      destroyOnHidden
     >
       <Paragraph type="secondary" style={{ marginTop: 4 }}>
-        Đưa mặt trước hoặc mặt sau CCCD/CMND vào khung. AI sẽ tự động trích xuất
+        Đưa mặt trước hoặc mặt sau CCCD/CMND vào khung để trích xuất
         <Text strong> số CCCD </Text>và<Text strong> họ tên</Text>.
         {autoApply && (
-          <Text strong style={{ color: "#4f46e5" }}>
-            {" "}
-            Quét xong sẽ tự tra cứu ngay.
-          </Text>
+          <Text strong> Quét xong sẽ tự tra cứu ngay.</Text>
         )}{" "}
         Toàn bộ xử lý chạy trên trình duyệt, không gửi ảnh đi đâu cả.
       </Paragraph>
@@ -337,7 +334,7 @@ export default function CccdScanner({
           style={{ padding: 12, marginBottom: 16 }}
         >
           <p className="ant-upload-drag-icon" style={{ marginBottom: 4 }}>
-            <UploadOutlined style={{ fontSize: 32, color: "#4f46e5" }} />
+            <UploadOutlined style={{ fontSize: 30, color: "var(--text-3)" }} />
           </p>
           <p className="ant-upload-text" style={{ fontWeight: 600 }}>
             Kéo thả hoặc bấm để chọn ảnh CCCD
@@ -350,8 +347,8 @@ export default function CccdScanner({
         <div
           style={{
             position: "relative",
-            background: "#000",
-            borderRadius: 12,
+            background: "var(--bg)",
+            borderRadius: "var(--r-2)",
             overflow: "hidden",
             marginBottom: 16,
             aspectRatio: "16 / 10",
@@ -415,11 +412,11 @@ export default function CccdScanner({
       {previewUrl && (
         <div
           style={{
-            border: "1px solid #e2e8f0",
-            borderRadius: 12,
+            border: "1px solid var(--line)",
+            borderRadius: "var(--r-2)",
             padding: 12,
             marginBottom: 16,
-            background: "#fafafe",
+            background: "var(--surface-2)",
           }}
         >
           <Flex justify="space-between" align="center" style={{ marginBottom: 8 }}>
@@ -453,8 +450,8 @@ export default function CccdScanner({
               width: "100%",
               maxHeight: 360,
               objectFit: "contain",
-              borderRadius: 8,
-              background: "#fff",
+              borderRadius: "var(--r-1)",
+              background: "var(--bg)",
             }}
           />
         </div>
@@ -465,12 +462,12 @@ export default function CccdScanner({
           <Progress
             percent={progress}
             status={isScanning ? "active" : progress === 100 ? "success" : "normal"}
-            strokeColor={{ from: "#4f46e5", to: "#06b6d4" }}
           />
           {isScanning && (
             <Text type="secondary">
               <Spin size="small" style={{ marginRight: 8 }} />
-              AI đang đọc ảnh, lần quét đầu tiên cần tải model (~10-20s)...
+              Đang đọc ảnh. Lần quét đầu tiên cần tải model, khoảng 10 đến 20
+              giây.
             </Text>
           )}
         </div>
@@ -496,20 +493,18 @@ export default function CccdScanner({
             style={{ marginTop: 0, marginBottom: 8 }}
           >
             <Title level={5} style={{ margin: 0 }}>
-              <CheckCircleOutlined style={{ color: "#10b981", marginRight: 6 }} />
+              <CheckCircleOutlined
+                style={{ color: "var(--risk-none)", marginRight: 6 }}
+              />
               Kết quả nhận dạng
             </Title>
             <Space size={6}>
               {!autoApply && (
-                <Tag icon={<EditOutlined />} color="processing">
-                  Có thể chỉnh sửa
-                </Tag>
+                <Tag icon={<EditOutlined />}>Có thể chỉnh sửa</Tag>
               )}
-              {!autoApply && hasEdits && <Tag color="orange">Đã sửa so với AI</Tag>}
+              {!autoApply && hasEdits && <Tag>Đã sửa lại</Tag>}
               {autoApply && (
-                <Tag color="success" icon={<CheckCircleOutlined />}>
-                  Đang tra cứu...
-                </Tag>
+                <Tag icon={<CheckCircleOutlined />}>Đang tra cứu</Tag>
               )}
             </Space>
           </Flex>
@@ -518,15 +513,15 @@ export default function CccdScanner({
               type="info"
               showIcon
               style={{ marginBottom: 12 }}
-              message="AI có thể đọc sai một vài ký tự (đặc biệt là dấu tiếng Việt). Hãy kiểm tra và sửa lại trước khi điền vào biểu mẫu."
+              message="Máy có thể đọc sai một vài ký tự, nhất là dấu tiếng Việt. Hãy kiểm tra lại trước khi điền vào biểu mẫu."
             />
           )}
           <div
             style={{
-              border: "1px solid #e2e8f0",
-              borderRadius: 12,
+              border: "1px solid var(--line)",
+              borderRadius: "var(--r-2)",
               overflow: "hidden",
-              background: "#fff",
+              background: "var(--surface-2)",
             }}
           >
             {FIELD_LABELS.map(({ key, label, highlight }, idx) => (
@@ -536,18 +531,18 @@ export default function CccdScanner({
                   display: "flex",
                   alignItems: "stretch",
                   borderBottom:
-                    idx < FIELD_LABELS.length - 1 ? "1px solid #f1f5f9" : "none",
+                    idx < FIELD_LABELS.length - 1
+                      ? "1px solid var(--line)"
+                      : "none",
                 }}
               >
                 <div
                   style={{
                     flex: "0 0 170px",
                     padding: "10px 12px",
-                    background: highlight
-                      ? "linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)"
-                      : "#f8fafc",
-                    color: highlight ? "#1e1b4b" : "#475569",
-                    fontWeight: 600,
+                    background: "var(--surface-1)",
+                    color: highlight ? "var(--text-1)" : "var(--text-2)",
+                    fontWeight: 500,
                     fontSize: 13,
                     display: "flex",
                     alignItems: "center",
@@ -555,7 +550,9 @@ export default function CccdScanner({
                 >
                   {label}
                   {highlight && (
-                    <Text style={{ color: "#ef4444", marginLeft: 4 }}>*</Text>
+                    <Text style={{ color: "var(--risk-high)", marginLeft: 4 }}>
+                      *
+                    </Text>
                   )}
                 </div>
                 <div style={{ flex: 1, padding: 8 }}>
@@ -563,16 +560,14 @@ export default function CccdScanner({
                     value={editedResult[key]}
                     onChange={(e) => updateField(key, e.target.value)}
                     placeholder={
-                      result[key]
-                        ? ""
-                        : "AI không đọc được — nhập tay nếu cần"
+                      result[key] ? "" : "Không đọc được, nhập tay nếu cần"
                     }
                     variant="borderless"
+                    className={key === "cccd" ? "num" : undefined}
                     style={{
                       fontSize: highlight ? 15 : 14,
-                      fontWeight: highlight ? 700 : 400,
-                      fontFamily: key === "cccd" ? "monospace" : undefined,
-                      color: highlight ? "#1e1b4b" : "#0f172a",
+                      fontWeight: highlight ? 600 : 400,
+                      color: "var(--text-1)",
                     }}
                     {...(key === "cccd"
                       ? { maxLength: 12, showCount: true }

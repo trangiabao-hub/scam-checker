@@ -1,68 +1,43 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
 import {
-  Layout,
-  Card,
-  Carousel,
-  Tabs,
   Input,
   Button,
   Form,
   Upload,
   Modal,
   Image,
-  Tag,
   Pagination,
   Alert,
-  Descriptions,
-  List,
-  Statistic,
-  Empty,
   Spin,
-  Typography,
-  Space,
-  Row,
-  Col,
-  Divider,
   Flex,
-  Grid,
-  Tooltip,
-  theme,
   message,
 } from "antd";
 import {
   SearchOutlined,
-  SafetyCertificateOutlined,
   SendOutlined,
   IdcardOutlined,
   PhoneOutlined,
   UserOutlined,
-  CalendarOutlined,
   CameraOutlined,
   WarningOutlined,
-  AlertOutlined,
   CheckCircleOutlined,
   PlusOutlined,
   DeleteOutlined,
   PictureOutlined,
   EyeOutlined,
   ExclamationCircleOutlined,
-  ToolOutlined,
   InboxOutlined,
   FileSearchOutlined,
-  SafetyOutlined,
   ClockCircleOutlined,
   NumberOutlined,
   FireOutlined,
   TeamOutlined,
   DatabaseOutlined,
-  UnorderedListOutlined,
   ScanOutlined,
   UploadOutlined,
-  LeftOutlined,
-  RightOutlined,
-  SwapOutlined,
-  ThunderboltOutlined,
+  ReloadOutlined,
+  UserOutlined as AccountIcon,
+  SafetyCertificateOutlined,
 } from "@ant-design/icons";
 import "./App.css";
 import {
@@ -72,16 +47,30 @@ import {
   uploadEvidenceFile,
 } from "./api";
 import CccdScanner from "./components/CccdScanner";
+import AccountPanel from "./components/AccountPanel";
+import NoticeModal from "./components/NoticeModal";
+import { useAuth } from "./auth-context";
 import { scanCccdImage } from "./ocr";
-
-const { Content } = Layout;
-const { Title, Text, Paragraph } = Typography;
-const { useBreakpoint } = Grid;
 
 const MAX_IMAGES = 6;
 const MAX_IMAGE_MB = 5;
 const MAX_EQUIPMENT_ITEMS = 10;
 const HOME_REPORTS_PER_PAGE = 6;
+const EMPTY_VALUE = "Không có";
+
+/*
+  Tab cuối đổi tên theo trạng thái: người chưa đăng nhập thấy "Xác thực" để
+  biết cần làm gì, người đã đăng nhập thấy "Tài khoản".
+*/
+const buildTabs = (isSignedIn) => [
+  { key: "all", label: "Dữ liệu", icon: <DatabaseOutlined /> },
+  { key: "check", label: "Tra cứu", icon: <SearchOutlined /> },
+  { key: "report", label: "Tố cáo", icon: <SendOutlined /> },
+  isSignedIn
+    ? { key: "account", label: "Tài khoản", icon: <AccountIcon /> }
+    : { key: "account", label: "Xác thực", icon: <SafetyCertificateOutlined /> },
+];
+
 const createEmptyEquipmentItem = () => ({ deviceName: "", serialNumber: "" });
 
 const isValidCccd = (value) => /^\d{12}$/.test(value);
@@ -91,7 +80,20 @@ const normalizeSearchText = (value) =>
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
-const formatDate = (value) => new Date(value).toLocaleString("vi-VN");
+
+/*
+  Tự dựng chuỗi thay vì dùng Intl: locale vi-VN trả về giờ trước ngày
+  ("19:13 23/09/2026"), trong khi danh sách cần ngày đứng trước để quét mắt.
+*/
+const pad = (n) => String(n).padStart(2, "0");
+const formatDate = (value) => {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "Không rõ thời gian";
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(
+    d.getHours(),
+  )}:${pad(d.getMinutes())}`;
+};
+
 const hasSubmitterInfo = (report) =>
   Boolean(report.submitterName?.trim() || report.submitterPhone?.trim());
 
@@ -119,9 +121,97 @@ const normalizeReport = (row) => ({
     new Date(row.created_at ?? row.createdAt ?? Date.now()).getTime(),
 });
 
-/* ══════════════════════════════════════════════
-   REPORT DETAIL MODAL
-   ══════════════════════════════════════════════ */
+/* ── Khối nhỏ dùng lại ────────────────────── */
+
+function Field({ label, value, mono }) {
+  const isEmpty = !String(value ?? "").trim();
+  return (
+    <div>
+      <span className="field-label">{label}</span>
+      <span
+        className={[
+          "field-value",
+          mono && !isEmpty ? "num" : "",
+          isEmpty ? "is-empty" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        {isEmpty ? EMPTY_VALUE : value}
+      </span>
+    </div>
+  );
+}
+
+function DeviceChip({ item }) {
+  return (
+    <span className="device-chip">
+      <CameraOutlined />
+      {item.deviceName}
+      <span className="device-sn">{item.serialNumber}</span>
+    </span>
+  );
+}
+
+function EvidenceThumbs({ report, size = 76 }) {
+  return (
+    <Image.PreviewGroup>
+      <div className="thumb-row">
+        {report.imageUrls.map((url, idx) => (
+          <Image
+            key={url}
+            src={url}
+            alt={`Ảnh bằng chứng ${idx + 1} trong tố cáo ${
+              report.scammerName || "không rõ đối tượng"
+            }`}
+            width={size}
+            height={Math.round(size * 0.75)}
+            style={{ objectFit: "cover" }}
+            placeholder
+          />
+        ))}
+      </div>
+    </Image.PreviewGroup>
+  );
+}
+
+function EmptyState({ icon, title, children }) {
+  return (
+    <div className="empty-state">
+      <div className="empty-state-icon">{icon}</div>
+      <h2>{title}</h2>
+      <p>{children}</p>
+    </div>
+  );
+}
+
+/* Khung xám đúng hình dạng card thật, nên dữ liệu về không làm nhảy layout */
+function SkeletonCard() {
+  return (
+    <div className="skeleton-card" aria-hidden="true">
+      <div className="sk" style={{ width: "54%", height: 16 }} />
+      <div className="sk" style={{ width: "32%", height: 11, marginTop: 10 }} />
+      <div className="sk-row" style={{ marginTop: 22 }}>
+        <div className="sk" style={{ flex: 1, height: 32 }} />
+        <div className="sk" style={{ flex: 1, height: 32 }} />
+      </div>
+      <div className="sk" style={{ height: 11, marginTop: 20 }} />
+      <div className="sk" style={{ width: "74%", height: 11, marginTop: 8 }} />
+    </div>
+  );
+}
+
+function SkeletonGrid({ count = 4 }) {
+  return (
+    <div className="card-grid">
+      {Array.from({ length: count }, (_, i) => (
+        <SkeletonCard key={i} />
+      ))}
+    </div>
+  );
+}
+
+/* ── Modal chi tiết ───────────────────────── */
 
 function ReportDetailModal({ report, open, onClose }) {
   if (!report) return null;
@@ -131,210 +221,122 @@ function ReportDetailModal({ report, open, onClose }) {
       open={open}
       onCancel={onClose}
       footer={null}
-      width={760}
-      className="premium-modal"
+      width={720}
       title={
         <div>
-          <span className="kicker">Chi tiết tố cáo</span>
-          <Title level={4} style={{ margin: 0 }}>
+          <h2 style={{ fontSize: 18 }}>
             {report.scammerName || "Không rõ đối tượng"}
-          </Title>
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            <ClockCircleOutlined style={{ marginRight: 4 }} />
+          </h2>
+          <span className="report-card-date">
+            <ClockCircleOutlined style={{ marginRight: 5 }} />
             {formatDate(report.createdAt)}
-          </Text>
+          </span>
         </div>
       }
     >
-      <Descriptions
-        bordered
-        size="small"
-        column={{ xs: 1, sm: 2 }}
-        className="premium-descriptions"
-        style={{ marginBottom: 18 }}
-      >
-        <Descriptions.Item label={<><IdcardOutlined /> CCCD</>}>
-          <Text strong copyable={{ text: report.cccd }}>
-            {report.cccd || "Không cung cấp"}
-          </Text>
-        </Descriptions.Item>
-        <Descriptions.Item label={<><PhoneOutlined /> SĐT đối tượng</>}>
-          <Text strong>
-            {report.scammerPhone?.trim() || "Không cung cấp"}
-          </Text>
-        </Descriptions.Item>
-        {hasSubmitterInfo(report) && (
-          <>
-            <Descriptions.Item label={<><UserOutlined /> Người đăng</>}>
-              <Text strong>
-                {report.submitterName?.trim() || "Không cung cấp"}
-              </Text>
-            </Descriptions.Item>
-            <Descriptions.Item label={<><PhoneOutlined /> SĐT người đăng</>}>
-              <Text strong>
-                {report.submitterPhone?.trim() || "Không cung cấp"}
-              </Text>
-            </Descriptions.Item>
-          </>
-        )}
-      </Descriptions>
+      <div className="detail-block">
+        <div className="field-grid" style={{ marginTop: 0, paddingTop: 0, border: 0 }}>
+          <Field label="CCCD" value={report.cccd} mono />
+          <Field label="Số điện thoại đối tượng" value={report.scammerPhone} mono />
+          {hasSubmitterInfo(report) && (
+            <>
+              <Field label="Người đăng" value={report.submitterName} />
+              <Field label="Số điện thoại người đăng" value={report.submitterPhone} mono />
+            </>
+          )}
+        </div>
+      </div>
 
-      <div className="modal-section">
-        <Text className="modal-section-title">
-          <ExclamationCircleOutlined /> Nội dung tố cáo
-        </Text>
-        <Paragraph style={{ whiteSpace: "pre-wrap", margin: 0, lineHeight: 1.8 }}>
-          {report.description || "Không có nội dung"}
-        </Paragraph>
+      <div className="detail-block">
+        <span className="detail-label">
+          <ExclamationCircleOutlined style={{ marginRight: 6 }} />
+          Nội dung tố cáo
+        </span>
+        <p className="detail-text">
+          {report.description?.trim() || "Người đăng không ghi nội dung."}
+        </p>
       </div>
 
       {report.equipmentItems?.length > 0 && (
-        <div className="modal-section">
-          <Text className="modal-section-title">
-            <CameraOutlined /> Thiết bị liên quan
-          </Text>
+        <div className="detail-block">
+          <span className="detail-label">
+            <CameraOutlined style={{ marginRight: 6 }} />
+            Thiết bị liên quan
+          </span>
           <Flex wrap gap={8}>
-            {report.equipmentItems.map((eq, idx) => (
-              <Tag key={idx} className="equip-tag" icon={<CameraOutlined />}>
-                {eq.deviceName} — S/N: {eq.serialNumber}
-              </Tag>
+            {report.equipmentItems.map((item, idx) => (
+              <DeviceChip key={idx} item={item} />
             ))}
           </Flex>
         </div>
       )}
 
-      <div className="modal-section" style={{ marginBottom: 0 }}>
-        <Text className="modal-section-title">
-          <PictureOutlined /> Ảnh bằng chứng
-        </Text>
+      <div className="detail-block">
+        <span className="detail-label">
+          <PictureOutlined style={{ marginRight: 6 }} />
+          Ảnh bằng chứng
+        </span>
         {report.imageUrls?.length > 0 ? (
-          <Image.PreviewGroup>
-            <Flex wrap gap={10}>
-              {report.imageUrls.map((url, idx) => (
-                <Image
-                  key={url}
-                  src={url}
-                  alt={`Bằng chứng ${idx + 1}`}
-                  width={130}
-                  height={100}
-                  style={{ objectFit: "cover", borderRadius: 10 }}
-                  placeholder
-                />
-              ))}
-            </Flex>
-          </Image.PreviewGroup>
+          <EvidenceThumbs report={report} size={132} />
         ) : (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="Chưa có ảnh bằng chứng"
-          />
+          <p className="hint" style={{ margin: 0 }}>
+            Tố cáo này không kèm ảnh bằng chứng.
+          </p>
         )}
       </div>
     </Modal>
   );
 }
 
-/* ══════════════════════════════════════════════
-   REPORT CARD (reusable)
-   ══════════════════════════════════════════════ */
+/* ── Card tố cáo ──────────────────────────── */
 
-function ReportCard({ item, onViewDetail, compact }) {
+function ReportCard({ item, onViewDetail }) {
   return (
-    <Card
-      size="small"
-      hoverable
-      className="report-card"
-      style={{ borderRadius: 16 }}
-    >
-      <Flex justify="space-between" align="flex-start" gap={12}>
-        <Space direction="vertical" size={2}>
-          <Text strong style={{ fontSize: 15 }}>
-            {item.scammerName || "Không rõ"}
-          </Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            <ClockCircleOutlined style={{ marginRight: 3 }} />
+    <article className="report-card">
+      <div className="report-card-top">
+        <div style={{ minWidth: 0 }}>
+          <h3 className="report-card-name">{item.scammerName || "Không rõ đối tượng"}</h3>
+          <div className="report-card-date">
+            <ClockCircleOutlined style={{ marginRight: 5 }} />
             {formatDate(item.createdAt)}
-          </Text>
-        </Space>
+          </div>
+        </div>
         {onViewDetail && (
-          <Tooltip title="Xem chi tiết đầy đủ">
-            <Button
-              type="primary"
-              ghost
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => onViewDetail(item)}
-              style={{ borderRadius: 8 }}
-            >
-              Chi tiết
-            </Button>
-          </Tooltip>
+          <Button
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => onViewDetail(item)}
+          >
+            Chi tiết
+          </Button>
         )}
-      </Flex>
+      </div>
 
-      <Divider style={{ margin: "12px 0" }} />
-
-      <Row gutter={[10, 8]}>
-        <Col xs={12} sm={compact ? 24 : 8}>
-          <div className="report-card-field">
-            <span className="report-card-field-label">CCCD</span>
-            <span className="report-card-field-value">{item.cccd}</span>
-          </div>
-        </Col>
-        <Col xs={12} sm={compact ? 24 : 8}>
-          <div className="report-card-field">
-            <span className="report-card-field-label">SĐT đối tượng</span>
-            <span className="report-card-field-value">{item.scammerPhone?.trim() || "—"}</span>
-          </div>
-        </Col>
+      <div className="field-grid">
+        <Field label="CCCD" value={item.cccd} mono />
+        <Field label="Số điện thoại" value={item.scammerPhone} mono />
         {hasSubmitterInfo(item) && (
-          <Col xs={24} sm={compact ? 24 : 8}>
-            <div className="report-card-field">
-              <span className="report-card-field-label">Người đăng</span>
-              <span className="report-card-field-value">{item.submitterName?.trim() || "—"}</span>
-            </div>
-          </Col>
+          <Field label="Người đăng" value={item.submitterName} />
         )}
-      </Row>
+      </div>
 
-      <Paragraph
-        type="secondary"
-        ellipsis={{ rows: 2 }}
-        style={{ marginTop: 10, marginBottom: 0, fontSize: 13, lineHeight: 1.7 }}
-      >
-        {item.description}
-      </Paragraph>
-
-      {item.equipmentItems?.length > 0 && (
-        <Flex wrap gap={6} style={{ marginTop: 10 }}>
-          {item.equipmentItems.map((eq, idx) => (
-            <Tag key={idx} className="equip-tag" style={{ fontSize: 12 }}>
-              <CameraOutlined /> {eq.deviceName} — {eq.serialNumber}
-            </Tag>
-          ))}
-        </Flex>
+      {item.description?.trim() && (
+        <p className="report-card-desc">{item.description}</p>
       )}
 
-      {item.imageUrls?.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <Image.PreviewGroup>
-            <Flex wrap gap={6}>
-              {item.imageUrls.map((url, idx) => (
-                <Image
-                  key={url}
-                  src={url}
-                  alt={`Bằng chứng ${idx + 1}`}
-                  width={72}
-                  height={54}
-                  style={{ objectFit: "cover", borderRadius: 8 }}
-                  placeholder
-                />
+      {(item.equipmentItems?.length > 0 || item.imageUrls?.length > 0) && (
+        <div className="report-card-foot">
+          {item.equipmentItems?.length > 0 && (
+            <Flex wrap gap={7} style={{ marginBottom: item.imageUrls?.length ? 10 : 0 }}>
+              {item.equipmentItems.map((eq, idx) => (
+                <DeviceChip key={idx} item={eq} />
               ))}
             </Flex>
-          </Image.PreviewGroup>
+          )}
+          {item.imageUrls?.length > 0 && <EvidenceThumbs report={item} />}
         </div>
       )}
-    </Card>
+    </article>
   );
 }
 
@@ -344,8 +346,8 @@ function ReportCard({ item, onViewDetail, compact }) {
 
 function App() {
   const [messageApi, contextHolder] = message.useMessage();
-  const screens = useBreakpoint();
-  const { token } = theme.useToken();
+  const { isSignedIn } = useAuth();
+  const tabs = useMemo(() => buildTabs(isSignedIn), [isSignedIn]);
 
   const [activeTab, setActiveTab] = useState("all");
   const [reports, setReports] = useState([]);
@@ -377,17 +379,8 @@ function App() {
   const [isQuickScanning, setIsQuickScanning] = useState(false);
   const [quickScanError, setQuickScanError] = useState("");
   const [quickScanResult, setQuickScanResult] = useState(null);
-  const [carouselIndex, setCarouselIndex] = useState(0);
   const uploadInputRef = useRef(null);
   const cameraInputRef = useRef(null);
-  const carouselRef = useRef(null);
-
-  useEffect(() => {
-    setCarouselIndex(0);
-    if (carouselRef.current && typeof carouselRef.current.goTo === "function") {
-      carouselRef.current.goTo(0, true);
-    }
-  }, [searchResult]);
 
   const handleScannerApply = useCallback(
     (data) => {
@@ -403,14 +396,14 @@ function App() {
       if (filled) {
         setReportError("");
         messageApi.success(
-          `AI đã điền ${filled} vào biểu mẫu. Kiểm tra lại trước khi gửi.`,
+          `Đã điền ${filled} vào biểu mẫu. Kiểm tra lại trước khi gửi.`,
         );
       }
     },
     [messageApi],
   );
 
-  /* ── data loading ────────────────────────── */
+  /* ── Tải dữ liệu ─────────────────────────── */
 
   const loadReports = useCallback(async () => {
     const data = await fetchReports();
@@ -420,30 +413,35 @@ function App() {
     setReports(normalizedReports);
   }, []);
 
-  useEffect(() => {
+  /* Dùng chung cho lần tải đầu và cho nút thử lại khi API lỗi */
+  const refreshReports = useCallback(async () => {
     if (!hasApiConfig) {
       setDataError(
-        "Chưa cấu hình API. Hãy tạo file .env từ .env.example và khai báo VITE_API_BASE_URL.",
+        "Chưa cấu hình API. Tạo file .env từ .env.example và khai báo VITE_API_BASE_URL.",
       );
       setIsLoadingReports(false);
       return;
     }
-    const init = async () => {
-      try {
-        await loadReports();
-        setDataError("");
-      } catch {
-        setDataError(
-          "Không đọc được dữ liệu từ API. Kiểm tra lại endpoint và biến môi trường.",
-        );
-      } finally {
-        setIsLoadingReports(false);
-      }
-    };
-    init();
+    setIsLoadingReports(true);
+    try {
+      await loadReports();
+      setDataError("");
+    } catch (error) {
+      setDataError(
+        error instanceof Error
+          ? error.message
+          : "Không đọc được dữ liệu từ API.",
+      );
+    } finally {
+      setIsLoadingReports(false);
+    }
   }, [loadReports]);
 
-  /* ── search logic ────────────────────────── */
+  useEffect(() => {
+    refreshReports();
+  }, [refreshReports]);
+
+  /* ── Tra cứu ─────────────────────────────── */
 
   const findMatches = useCallback(
     (keyword) => {
@@ -451,11 +449,21 @@ function App() {
       const digits = String(keyword ?? "").replace(/\D/g, "");
       if (!norm) return [];
       return reports.filter((item) => {
-        const fields = [item.cccd, item.scammerPhone, item.submitterPhone, item.scammerName, item.submitterName];
-        const textMatch = fields.some((f) => normalizeSearchText(f).includes(norm));
+        const fields = [
+          item.cccd,
+          item.scammerPhone,
+          item.submitterPhone,
+          item.scammerName,
+          item.submitterName,
+        ];
+        const textMatch = fields.some((f) =>
+          normalizeSearchText(f).includes(norm),
+        );
         const digitMatch = digits
           ? [item.cccd, item.scammerPhone, item.submitterPhone].some((f) =>
-              String(f ?? "").replace(/\D/g, "").includes(digits),
+              String(f ?? "")
+                .replace(/\D/g, "")
+                .includes(digits),
             )
           : false;
         return textMatch || digitMatch;
@@ -470,8 +478,8 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [findMatches]);
 
-  // Quick-scan inline: nhận file (từ upload hoặc camera capture), chạy OCR,
-  // tự tra cứu CCCD + tên theo OR và hiển thị kết quả ngay trong tab Tra cứu.
+  // Quét nhanh: nhận file từ upload hoặc camera, chạy OCR, tự tra cứu CCCD và
+  // tên theo OR rồi hiển thị kết quả ngay trong tab Tra cứu.
   const runQuickScan = useCallback(
     async (file) => {
       if (!file) return;
@@ -480,7 +488,7 @@ function App() {
         return;
       }
       if (file.size > 10 * 1024 * 1024) {
-        setQuickScanError("Ảnh quá lớn (>10MB).");
+        setQuickScanError("Ảnh quá lớn, giới hạn 10MB.");
         return;
       }
       setQuickScanError("");
@@ -494,12 +502,12 @@ function App() {
 
         if (!cccd && !name) {
           setQuickScanError(
-            "AI không đọc được CCCD hay họ tên. Hãy chụp lại rõ nét, đủ ánh sáng.",
+            "Không đọc được CCCD hay họ tên. Hãy chụp lại rõ nét, đủ ánh sáng.",
           );
           return;
         }
 
-        // Tra cứu theo CCCD HOẶC họ tên — merge và khử trùng theo id.
+        // Tra cứu theo CCCD hoặc họ tên, merge và khử trùng theo id.
         const matchesByCccd = cccd ? findMatches(cccd) : [];
         const matchesByName = name ? findMatches(name) : [];
         const seen = new Set();
@@ -515,17 +523,20 @@ function App() {
         setSelectedReport(null);
         setActiveTab("check");
         setTimeout(() => {
-          document.getElementById("search-results-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          document
+            .getElementById("search-results-section")
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 100);
 
+        const scanned = cccd ? `CCCD ${cccd}` : `tên ${name}`;
         if (merged.length > 0) {
           messageApi.warning({
-            content: `Cảnh báo: tìm thấy ${merged.length} tố cáo khớp ${cccd ? `CCCD ${cccd}` : ""}${cccd && name ? " hoặc " : ""}${name ? `tên "${name}"` : ""}.`,
+            content: `Tìm thấy ${merged.length} tố cáo khớp ${scanned}.`,
             duration: 6,
           });
         } else {
           messageApi.success({
-            content: `Đã quét: ${cccd ? `CCCD ${cccd}` : ""}${cccd && name ? " · " : ""}${name ? `tên ${name}` : ""}. Không có tố cáo nào — tạm thời an toàn.`,
+            content: `Đã quét ${scanned}. Chưa có tố cáo nào.`,
             duration: 5,
           });
         }
@@ -546,41 +557,31 @@ function App() {
     event.target.value = "";
   };
 
-  const totalReports = reports.length;
   const totalHomePages = useMemo(
     () => Math.max(1, Math.ceil(reports.length / HOME_REPORTS_PER_PAGE)),
     [reports.length],
   );
   const paginatedReports = useMemo(() => {
-    const s = (homePage - 1) * HOME_REPORTS_PER_PAGE;
-    return reports.slice(s, s + HOME_REPORTS_PER_PAGE);
+    const start = (homePage - 1) * HOME_REPORTS_PER_PAGE;
+    return reports.slice(start, start + HOME_REPORTS_PER_PAGE);
   }, [homePage, reports]);
 
-  const totalEvidenceInSearch = useMemo(
-    () =>
-      Array.isArray(searchResult)
-        ? searchResult.reduce(
-            (sum, i) => sum + (i.imageUrls?.length ?? 0) + (i.equipmentItems?.length ?? 0),
-            0,
-          )
-        : 0,
-    [searchResult],
-  );
-
-  /* ── handlers ────────────────────────────── */
+  /* ── Handler ─────────────────────────────── */
 
   const handleCheck = () => {
     setSearchError("");
     if (!queryKeyword.trim()) {
       setSearchResult(null);
       setSelectedReport(null);
-      setSearchError("Vui lòng nhập CCCD, số điện thoại hoặc tên để tra cứu.");
+      setSearchError("Nhập CCCD, số điện thoại hoặc tên để tra cứu.");
       return;
     }
     setSearchResult(findMatches(queryKeyword));
     setSelectedReport(null);
     setTimeout(() => {
-      document.getElementById("search-results-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document
+        .getElementById("search-results-section")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 100);
   };
 
@@ -600,7 +601,9 @@ function App() {
           f.originFileObj.size > MAX_IMAGE_MB * 1024 * 1024),
     );
     if (bad) {
-      setReportError(`File ${bad.name} không hợp lệ. Chỉ nhận ảnh ≤ ${MAX_IMAGE_MB}MB.`);
+      setReportError(
+        `File ${bad.name} không hợp lệ. Chỉ nhận ảnh tối đa ${MAX_IMAGE_MB}MB.`,
+      );
       return;
     }
     setReportError("");
@@ -636,12 +639,24 @@ function App() {
     setReportError("");
     setReportSuccess("");
 
-    if (!hasApiConfig) { setReportError("API chưa cấu hình."); return; }
-    if (!isValidCccd(reportForm.cccd)) { setReportError("CCCD phải đúng 12 chữ số."); return; }
-    if (!reportForm.description.trim()) { setReportError("Vui lòng nhập nội dung tố cáo."); return; }
+    if (!hasApiConfig) {
+      setReportError("API chưa cấu hình.");
+      return;
+    }
+    if (!isValidCccd(reportForm.cccd)) {
+      setReportError("CCCD phải đúng 12 chữ số.");
+      return;
+    }
+    if (!reportForm.description.trim()) {
+      setReportError("Nhập nội dung tố cáo.");
+      return;
+    }
 
     const trimmed = equipmentItems
-      .map((i) => ({ deviceName: i.deviceName.trim(), serialNumber: i.serialNumber.trim() }))
+      .map((i) => ({
+        deviceName: i.deviceName.trim(),
+        serialNumber: i.serialNumber.trim(),
+      }))
       .filter((i) => i.deviceName || i.serialNumber);
     if (trimmed.find((i) => !i.deviceName || !i.serialNumber)) {
       setReportError("Mỗi thiết bị cần đủ tên máy và số seri.");
@@ -667,118 +682,186 @@ function App() {
         created_at_ms: Date.now(),
       });
       await loadReports();
-      setReportForm({ cccd: "", scammerName: "", scammerPhone: "", submitterName: "", submitterPhone: "", description: "" });
+      setReportForm({
+        cccd: "",
+        scammerName: "",
+        scammerPhone: "",
+        submitterName: "",
+        submitterPhone: "",
+        description: "",
+      });
       setReportImages([]);
       setEquipmentItems([createEmptyEquipmentItem()]);
-      setReportSuccess("Tố cáo đã được ghi nhận thành công.");
-      messageApi.success("Tố cáo đã được ghi nhận!");
+      setReportSuccess("Tố cáo đã được ghi nhận.");
+      messageApi.success("Tố cáo đã được ghi nhận.");
     } catch (error) {
-      setReportError(`Gửi thất bại: ${error instanceof Error ? error.message : "Lỗi không xác định"}`);
+      setReportError(
+        `Gửi thất bại: ${
+          error instanceof Error ? error.message : "Lỗi không xác định"
+        }`,
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  /* ══════════════════════════════════════════
-     SEARCH PANEL
-     ══════════════════════════════════════════ */
+  /* ── Tab: cơ sở dữ liệu ──────────────────── */
+
+  const dataErrorBanner = dataError ? (
+    <Alert
+      type="error"
+      showIcon
+      message="Không tải được dữ liệu"
+      description={dataError}
+      action={
+        <Button
+          size="small"
+          icon={<ReloadOutlined />}
+          onClick={refreshReports}
+          loading={isLoadingReports}
+        >
+          Thử lại
+        </Button>
+      }
+      style={{ marginBottom: 18 }}
+    />
+  ) : null;
+
+  const allReportsPanel = (
+    <div className="tab-panel">
+      <header className="page-head">
+        <h1>Cơ sở dữ liệu scammer</h1>
+        <p>
+          Danh sách do cộng đồng cho thuê máy ảnh trên toàn quốc đóng góp. Tra
+          cứu trước khi giao máy cho khách lạ.
+        </p>
+        {!isLoadingReports && !dataError && reports.length > 0 && (
+          <div className="page-head-meta">
+            <strong>{reports.length}</strong>
+            <span>tố cáo đã ghi nhận</span>
+          </div>
+        )}
+      </header>
+
+      {dataErrorBanner}
+
+      {isLoadingReports ? (
+        <SkeletonGrid count={4} />
+      ) : dataError ? null : reports.length === 0 ? (
+        <EmptyState icon={<InboxOutlined />} title="Chưa có tố cáo nào">
+          Khi có người gửi tố cáo đầu tiên, dữ liệu sẽ hiện ở đây.
+        </EmptyState>
+      ) : (
+        <>
+          <div className="card-grid">
+            {paginatedReports.map((item) => (
+              <ReportCard
+                key={item.id}
+                item={item}
+                onViewDetail={setSelectedReport}
+              />
+            ))}
+          </div>
+
+          {reports.length > HOME_REPORTS_PER_PAGE && (
+            <Flex justify="center" style={{ marginTop: 26 }}>
+              <Pagination
+                current={homePage}
+                total={reports.length}
+                pageSize={HOME_REPORTS_PER_PAGE}
+                onChange={setHomePage}
+                showSizeChanger={false}
+              />
+            </Flex>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  /* ── Tab: tra cứu ────────────────────────── */
+
+  /*
+    Chỉ kết luận "cùng một người bị tố cáo nhiều lần" khi các kết quả dùng
+    chung một số CCCD. Tra theo tên thường khớp nhiều người khác nhau, nói
+    gộp thành một đối tượng là sai.
+  */
+  const riskView = (() => {
+    if (!Array.isArray(searchResult)) return null;
+    const count = searchResult.length;
+    const distinctSubjects = new Set(
+      searchResult.map((r) => String(r.cccd ?? "").trim()).filter(Boolean),
+    ).size;
+    const sameSubject = distinctSubjects <= 1;
+
+    let level = "none";
+    let icon = <CheckCircleOutlined />;
+    let title = "Chưa có tố cáo";
+    let sub =
+      "Không có ghi nhận nào với thông tin này. Vẫn nên kiểm tra giấy tờ gốc khi giao máy.";
+
+    if (count > 0 && sameSubject && count >= 3) {
+      level = "high";
+      icon = <FireOutlined />;
+      title = "Rủi ro cao";
+      sub = `Cùng một số CCCD bị tố cáo ${count} lần.`;
+    } else if (count > 0 && sameSubject) {
+      level = "mid";
+      icon = <WarningOutlined />;
+      title = "Có tố cáo";
+      sub = `Tìm thấy ${count} tố cáo với thông tin này.`;
+    } else if (count > 0) {
+      level = "mid";
+      icon = <WarningOutlined />;
+      title = "Nhiều kết quả khớp";
+      sub = `Tìm thấy ${count} tố cáo của ${distinctSubjects} người khác nhau. Đối chiếu đúng số CCCD trước khi kết luận.`;
+    }
+
+    return (
+      <div className={`risk risk-${level}`}>
+        <div className="risk-icon">{icon}</div>
+        <div style={{ minWidth: 0 }}>
+          <div className="risk-query">
+            Tra cứu cho <span className="num">{queryKeyword}</span>
+          </div>
+          <h2 className="risk-title">{title}</h2>
+          <p className="risk-sub">{sub}</p>
+        </div>
+      </div>
+    );
+  })();
 
   const searchPanel = (
-    <div className="fade-in">
-      <div className="hero-section">
-        <div className="hero-badge"><SearchOutlined /> Kiểm tra rủi ro</div>
-        <h1 className="hero-title">Tra cứu Scam<br/>nhanh chóng</h1>
-        <p className="hero-subtitle">
-          Nhập CCCD, SĐT hoặc quét AI để kiểm tra mức độ an toàn trước khi giao máy.
+    <div className="tab-panel">
+      <header className="page-head">
+        <h1>Tra cứu trước khi giao máy</h1>
+        <p>
+          Nhập CCCD, số điện thoại hoặc tên, hoặc quét ảnh CCCD để kiểm tra lịch
+          sử tố cáo.
         </p>
-      </div>
+      </header>
 
-      {/* ── AI Scanner Hero — mobile-first ── */}
-      <div className="ai-hero" style={{ marginBottom: 16 }}>
-
-        <Flex
-          align="center"
-          gap={10}
-          style={{ marginBottom: 8, position: "relative", zIndex: 1 }}
-        >
-          <div
-            style={{
-              width: screens.md ? 36 : 32,
-              height: screens.md ? 36 : 32,
-              borderRadius: 10,
-              background: "rgba(255,255,255,0.18)",
-              display: "grid",
-              placeItems: "center",
-              backdropFilter: "blur(6px)",
-              flexShrink: 0,
-            }}
-          >
-            <ThunderboltOutlined
-              style={{ fontSize: screens.md ? 18 : 16, color: "#fff" }}
-            />
+      <section className="scan-panel">
+        <div className="scan-panel-head">
+          <div className="scan-panel-icon">
+            <ScanOutlined />
           </div>
-          <div style={{ minWidth: 0, flex: 1, textAlign: "left" }}>
-            <Text
-              style={{
-                color: "rgba(255,255,255,0.85)",
-                fontSize: 10.5,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                fontWeight: 700,
-                display: "block",
-              }}
-            >
-              AI Scanner · Quét nhanh
-            </Text>
-            <Title
-              level={5}
-              style={{
-                color: "#fff",
-                margin: 0,
-                fontWeight: 700,
-                lineHeight: 1.25,
-                fontSize: screens.md ? 20 : 17,
-              }}
-            >
-              Tra cứu CCCD/VNeID tức thì
-            </Title>
+          <div style={{ minWidth: 0 }}>
+            <h2>Quét ảnh CCCD</h2>
+            <p className="hint" style={{ margin: "3px 0 0" }}>
+              Đọc số CCCD và họ tên rồi tra cứu ngay. Ảnh được xử lý trên máy
+              bạn, không gửi đi đâu.
+            </p>
           </div>
-        </Flex>
+        </div>
 
-        <Text
-          style={{
-            display: "block",
-            color: "rgba(255,255,255,0.82)",
-            fontSize: 13,
-            lineHeight: 1.5,
-            marginBottom: 14,
-            position: "relative",
-            zIndex: 1,
-            textAlign: "left",
-          }}
-        >
-          Chọn ảnh hoặc chụp CCCD — AI đọc{" "}
-          <Text strong style={{ color: "#fff" }}>
-            số CCCD
-          </Text>{" "}
-          và{" "}
-          <Text strong style={{ color: "#fff" }}>
-            họ tên
-          </Text>{" "}
-          rồi tự tra cứu ngay.
-        </Text>
-
-        <Flex
-          gap={8}
-          style={{ position: "relative", zIndex: 1 }}
-        >
+        <div className="scan-actions">
           <Button
+            type="primary"
             size="large"
             icon={<UploadOutlined />}
             loading={isQuickScanning}
             onClick={() => uploadInputRef.current?.click()}
-            className="ai-hero-btn-primary"
-            style={{ flex: 1 }}
           >
             Tải ảnh
           </Button>
@@ -787,10 +870,8 @@ function App() {
             icon={<CameraOutlined />}
             disabled={isQuickScanning}
             onClick={() => cameraInputRef.current?.click()}
-            className="ai-hero-btn-secondary"
-            style={{ flex: 1 }}
           >
-            Quét nhanh
+            Chụp ảnh
           </Button>
           <input
             ref={uploadInputRef}
@@ -807,108 +888,49 @@ function App() {
             onChange={handleQuickScanInput}
             style={{ display: "none" }}
           />
-        </Flex>
+        </div>
 
         {(isQuickScanning || quickScanResult || quickScanError) && (
-          <div
-            style={{
-              marginTop: 12,
-              padding: "10px 12px",
-              borderRadius: 10,
-              background: "rgba(0,0,0,0.3)",
-              border: "1px solid var(--border)",
-              color: "var(--text-primary)",
-              position: "relative",
-              zIndex: 1,
-            }}
-          >
+          <div className="scan-output" role="status" aria-live="polite">
             {isQuickScanning && (
-              <Flex align="center" gap={8}>
+              <Flex align="center" gap={10}>
                 <Spin size="small" />
-                <Text
-                  style={{ fontSize: 12.5, color: "var(--text-primary)", fontWeight: 600 }}
-                >
-                  AI đang đọc ảnh và tra cứu...
-                </Text>
+                <span style={{ fontSize: 13 }}>Đang đọc ảnh và tra cứu</span>
               </Flex>
             )}
             {!isQuickScanning && quickScanError && (
-              <Alert
-                type="warning"
-                showIcon
-                message={
-                  <Text style={{ fontSize: 12.5 }}>{quickScanError}</Text>
-                }
-                style={{ marginBottom: 0, borderRadius: 8, padding: "6px 10px" }}
-              />
+              <span style={{ fontSize: 13, color: "var(--risk-mid)" }}>
+                {quickScanError}
+              </span>
             )}
             {!isQuickScanning && !quickScanError && quickScanResult && (
-              <Flex wrap gap={6} align="center">
-                {quickScanResult.cccd && (
-                  <Tag
-                    color="geekblue"
-                    style={{
-                      fontFamily: "monospace",
-                      fontSize: 12.5,
-                      padding: "2px 8px",
-                      borderRadius: 6,
-                      marginInlineEnd: 0,
-                    }}
-                  >
-                    <IdcardOutlined /> {quickScanResult.cccd}
-                  </Tag>
-                )}
-                {quickScanResult.fullName && (
-                  <Tag
-                    color="purple"
-                    style={{
-                      fontSize: 12.5,
-                      padding: "2px 8px",
-                      borderRadius: 6,
-                      marginInlineEnd: 0,
-                    }}
-                  >
-                    <UserOutlined /> {quickScanResult.fullName}
-                  </Tag>
-                )}
-                {!quickScanResult.cccd && !quickScanResult.fullName && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    Không đọc được dữ liệu
-                  </Text>
-                )}
-              </Flex>
+              <div
+                className="field-grid"
+                style={{ marginTop: 0, paddingTop: 0, border: 0 }}
+              >
+                <Field label="CCCD đọc được" value={quickScanResult.cccd} mono />
+                <Field label="Họ tên đọc được" value={quickScanResult.fullName} />
+              </div>
             )}
           </div>
         )}
-      </div>
+      </section>
 
-      <Divider
-        style={{
-          margin: screens.md ? "12px 0 16px" : "8px 0 12px",
-          color: "var(--text-tertiary)",
-          fontSize: 12,
-        }}
-      >
-        hoặc nhập thủ công
-      </Divider>
+      <div className="divider-text">hoặc nhập thủ công</div>
 
-      <div
-        className="premium-search"
-        style={{ marginBottom: screens.md ? 20 : 14 }}
-      >
-        <Input.Search
-          size="large"
-          value={queryKeyword}
-          onChange={(e) => setQueryKeyword(e.target.value)}
-          onSearch={handleCheck}
-          placeholder={
-            screens.md
-              ? "Nhập CCCD, số điện thoại hoặc tên..."
-              : "CCCD, SĐT hoặc tên..."
-          }
-          enterButton="Kiểm tra"
-        />
-      </div>
+      <Input.Search
+        size="large"
+        value={queryKeyword}
+        onChange={(e) => setQueryKeyword(e.target.value)}
+        onSearch={handleCheck}
+        placeholder="CCCD, số điện thoại hoặc tên"
+        enterButton={
+          <Button type="primary" size="large" icon={<SearchOutlined />}>
+            Kiểm tra
+          </Button>
+        }
+        allowClear
+      />
 
       {searchError && (
         <Alert
@@ -917,516 +939,363 @@ function App() {
           showIcon
           closable
           onClose={() => setSearchError("")}
-          style={{ marginBottom: 16 }}
+          style={{ marginTop: 16 }}
         />
       )}
 
       {searchResult ? (
-        <div id="search-results-section" className="fade-in">
-          {/* Safety status hero — thay đổi màu sắc theo mức độ rủi ro */}
-          {(() => {
-            const isSafe = searchResult.length === 0;
-            const isHigh = searchResult.length >= 3;
-            const containerClass = isSafe ? "status-safe" : isHigh ? "status-high" : "status-warning";
-            const heroIconColor = isSafe ? "var(--success)" : isHigh ? "var(--danger)" : "var(--warning)";
-            const heroIcon = isSafe ? (
-              <CheckCircleOutlined style={{ fontSize: 28 }} />
-            ) : isHigh ? (
-              <FireOutlined style={{ fontSize: 28 }} />
-            ) : (
-              <WarningOutlined style={{ fontSize: 28 }} />
-            );
-            const heroTitle = isSafe
-              ? "An toàn tạm thời"
-              : isHigh
-                ? "Rủi ro cao — Hãy cẩn trọng!"
-                : "Có cảnh báo";
-            const heroSub = isSafe
-              ? "Chưa có tố cáo nào với thông tin này."
-              : `Tìm thấy ${searchResult.length} tố cáo${isHigh ? " — đối tượng nhiều lần bị tố giác" : ""}.`;
-            return (
-              <div
-                className={containerClass}
-                style={{
-                  padding: screens.md ? "20px 22px" : "14px 14px",
-                  borderRadius: 16,
-                  marginBottom: 12,
-                }}
-              >
-                <Flex align="center" gap={12}>
-                  <div
-                    style={{
-                      width: screens.md ? 52 : 44,
-                      height: screens.md ? 52 : 44,
-                      borderRadius: 14,
-                      background: "rgba(0,0,0,0.2)",
-                      color: heroIconColor,
-                      display: "grid",
-                      placeItems: "center",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {heroIcon}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
-                    <Text
-                      style={{
-                        fontSize: 11.5,
-                        color: "var(--text-secondary)",
-                        fontWeight: 600,
-                        display: "block",
-                        lineHeight: 1.3,
-                      }}
-                    >
-                      Tra cứu cho{" "}
-                      <Text
-                        strong
-                        style={{
-                          fontFamily: "monospace",
-                          color: "var(--text-primary)",
-                          fontSize: 12.5,
-                        }}
-                      >
-                        {queryKeyword}
-                      </Text>
-                    </Text>
-                    <Title
-                      level={5}
-                      style={{
-                        margin: "2px 0 0",
-                        color: "var(--text-primary)",
-                        fontWeight: 700,
-                        fontSize: screens.md ? 18 : 16,
-                        lineHeight: 1.25,
-                      }}
-                    >
-                      {heroTitle}
-                    </Title>
-                    <Text
-                      style={{
-                        fontSize: 12.5,
-                        color: "var(--text-secondary)",
-                        display: "block",
-                        marginTop: 2,
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {heroSub}
-                    </Text>
-                  </div>
-                </Flex>
-              </div>
-            );
-          })()}
+        <div id="search-results-section" style={{ marginTop: 22 }}>
+          <div role="status" aria-live="polite">
+            {riskView}
+          </div>
 
-          {searchResult.length > 0 ? (
-            <div style={{ marginTop: 16 }}>
-              <Row gutter={[16, 16]}>
-                {searchResult.map((item) => (
-                  <Col xs={24} md={12} key={item.id}>
-                    <ReportCard item={item} onViewDetail={setSelectedReport} />
-                  </Col>
-                ))}
-              </Row>
+          {searchResult.length > 0 && (
+            <div className="card-grid" style={{ marginTop: 16 }}>
+              {searchResult.map((item) => (
+                <ReportCard
+                  key={item.id}
+                  item={item}
+                  onViewDetail={setSelectedReport}
+                />
+              ))}
             </div>
-          ) : null}
+          )}
         </div>
       ) : (
-        <div className="empty-search-state">
-          <div className="empty-search-icon">
-            <FileSearchOutlined />
-          </div>
-          <Title level={5} style={{ margin: "0 0 6px", color: "var(--text-secondary)" }}>
-            Chưa có tra cứu nào
-          </Title>
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            Nhập CCCD / SĐT / tên vào ô tìm kiếm để kiểm tra lịch sử tố cáo
-          </Text>
+        <div style={{ marginTop: 22 }}>
+          <EmptyState icon={<FileSearchOutlined />} title="Chưa tra cứu">
+            Nhập thông tin hoặc quét ảnh CCCD để xem lịch sử tố cáo của người
+            thuê.
+          </EmptyState>
         </div>
       )}
     </div>
   );
 
-  /* ══════════════════════════════════════════
-     REPORT PANEL
-     ══════════════════════════════════════════ */
+  /* ── Tab: gửi tố cáo ─────────────────────── */
 
   const reportPanel = (
-    <div className="fade-in">
-      <div className="hero-section">
-        <div className="hero-badge"><SafetyCertificateOutlined /> Bảo vệ cộng đồng</div>
-        <h1 className="hero-title">Gửi tố cáo<br/>scam mới</h1>
-        <p className="hero-subtitle">
-          Dữ liệu của bạn sẽ giúp những người cho thuê máy khác tránh bị lừa đảo.
+    <div className="tab-panel">
+      <header className="page-head">
+        <h1>Gửi tố cáo</h1>
+        <p>
+          Thông tin bạn gửi sẽ hiển thị công khai để những người cho thuê máy
+          khác tra cứu được.
         </p>
-      </div>
+      </header>
 
-      <Form layout="vertical" onFinish={handleSubmitReport} className="premium-form">
-        {/* ── AI Scanner CCCD ── */}
-        <Card
-          size="small"
-          className="glass-card ai-hero"
-          style={{
-            marginBottom: 20,
-            overflow: "hidden",
-            position: "relative",
-          }}
-          styles={{ body: { padding: 18, zIndex: 1, position: "relative" } }}
-        >
-          <Flex justify="space-between" align="center" wrap gap={12}>
-            <Space direction="vertical" size={2} style={{ flex: 1, minWidth: 0 }}>
-              <Tag
-                color="geekblue"
-                icon={<ScanOutlined />}
-                style={{ fontWeight: 700, marginInlineEnd: 0 }}
-              >
-                AI SCANNER
-              </Tag>
-              <Text strong style={{ fontSize: 15, color: "#fff" }}>
-                Quét CCCD/VNeID bằng AI
-              </Text>
-              <Text style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>
-                Bật camera hoặc tải ảnh — AI tự trích xuất số CCCD và họ tên,
-                rồi điền vào biểu mẫu bên dưới.
-              </Text>
-            </Space>
+      <Form layout="vertical" onFinish={handleSubmitReport}>
+        <div className="form-stack">
+          <section className="scan-panel">
+            <div className="scan-panel-head">
+              <div className="scan-panel-icon">
+                <ScanOutlined />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <h2>Quét CCCD để điền nhanh</h2>
+                <p className="hint" style={{ margin: "3px 0 0" }}>
+                  Tự trích xuất số CCCD và họ tên vào biểu mẫu bên dưới.
+                </p>
+              </div>
+            </div>
             <Button
-              size="large"
               icon={<ScanOutlined />}
               onClick={() => setIsScannerOpen(true)}
-              className="ai-hero-btn-secondary"
+              style={{ marginTop: 4 }}
+              block
             >
-              Mở AI Scanner
+              Mở trình quét
             </Button>
-          </Flex>
-        </Card>
+          </section>
 
-        {/* ── Thông tin đối tượng ── */}
-        <Card
-          size="small"
-          className="glass-card"
-          style={{ marginBottom: 20 }}
-          styles={{ body: { padding: 18 } }}
-        >
-          <Text strong style={{ fontSize: 13, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", display: "block", marginBottom: 14 }}>
-            <SafetyOutlined style={{ marginRight: 6 }} />
-            Thông tin đối tượng bị tố cáo
-          </Text>
+          <section className="surface" style={{ padding: 18 }}>
+            <div className="surface-head">
+              <h2 className="surface-title">
+                <IdcardOutlined />
+                Thông tin đối tượng
+              </h2>
+            </div>
 
-          <Form.Item label="CCCD (12 chữ số)" required style={{ marginBottom: 14 }}>
-            <Input
-              prefix={<IdcardOutlined style={{ color: "var(--text-tertiary)" }} />}
-              size="large"
-              value={reportForm.cccd}
-              onChange={(e) => updateReportField("cccd", e.target.value.replace(/\D/g, ""))}
-              maxLength={12}
-              placeholder="Nhập CCCD đối tượng"
-              showCount
-              style={{ fontFamily: "monospace" }}
-            />
-          </Form.Item>
+            <Form.Item label="CCCD" required style={{ marginBottom: 16 }}>
+              <Input
+                prefix={<IdcardOutlined style={{ color: "var(--text-3)" }} />}
+                size="large"
+                value={reportForm.cccd}
+                onChange={(e) =>
+                  updateReportField("cccd", e.target.value.replace(/\D/g, ""))
+                }
+                maxLength={12}
+                placeholder="12 chữ số"
+                showCount
+                className="num"
+              />
+            </Form.Item>
 
-          <Row gutter={16}>
-            <Col xs={24} sm={12}>
+            <div className="form-row">
               <Form.Item label="Họ tên đối tượng" style={{ marginBottom: 0 }}>
                 <Input
-                  prefix={<UserOutlined style={{ color: "var(--text-tertiary)" }} />}
+                  prefix={<UserOutlined style={{ color: "var(--text-3)" }} />}
                   value={reportForm.scammerName}
-                  onChange={(e) => updateReportField("scammerName", e.target.value)}
-                  placeholder="VD: Nguyễn Văn A"
+                  onChange={(e) =>
+                    updateReportField("scammerName", e.target.value)
+                  }
+                  placeholder="Tên trên giấy tờ"
                 />
               </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="SĐT đối tượng" style={{ marginBottom: 0 }}>
+              <Form.Item label="Số điện thoại đối tượng" style={{ marginBottom: 0 }}>
                 <Input
-                  prefix={<PhoneOutlined style={{ color: "var(--text-tertiary)" }} />}
+                  prefix={<PhoneOutlined style={{ color: "var(--text-3)" }} />}
                   value={reportForm.scammerPhone}
-                  onChange={(e) => updateReportField("scammerPhone", e.target.value)}
+                  onChange={(e) =>
+                    updateReportField("scammerPhone", e.target.value)
+                  }
                   placeholder="Nếu có"
                 />
               </Form.Item>
-            </Col>
-          </Row>
-        </Card>
+            </div>
+          </section>
 
-        {/* ── Người đăng ── */}
-        <Card
-          size="small"
-          className="glass-card"
-          style={{ marginBottom: 20 }}
-          styles={{ body: { padding: 18 } }}
-        >
-          <Text strong style={{ fontSize: 13, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", display: "block", marginBottom: 14 }}>
-            <TeamOutlined style={{ marginRight: 6 }} />
-            Thông tin người đăng (không bắt buộc)
-          </Text>
-          <Row gutter={16}>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Họ tên bạn" style={{ marginBottom: 0 }}>
+          <section className="surface" style={{ padding: 18 }}>
+            <div className="surface-head">
+              <h2 className="surface-title">
+                <TeamOutlined />
+                Thông tin của bạn
+              </h2>
+              <span className="hint">Không bắt buộc</span>
+            </div>
+            <div className="form-row">
+              <Form.Item label="Họ tên" style={{ marginBottom: 0 }}>
                 <Input
-                  prefix={<UserOutlined style={{ color: "var(--text-tertiary)" }} />}
+                  prefix={<UserOutlined style={{ color: "var(--text-3)" }} />}
                   value={reportForm.submitterName}
-                  onChange={(e) => updateReportField("submitterName", e.target.value)}
+                  onChange={(e) =>
+                    updateReportField("submitterName", e.target.value)
+                  }
                   placeholder="Tên của bạn"
                 />
               </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="SĐT liên hệ" style={{ marginBottom: 0 }}>
+              <Form.Item label="Số điện thoại liên hệ" style={{ marginBottom: 0 }}>
                 <Input
-                  prefix={<PhoneOutlined style={{ color: "var(--text-tertiary)" }} />}
+                  prefix={<PhoneOutlined style={{ color: "var(--text-3)" }} />}
                   value={reportForm.submitterPhone}
-                  onChange={(e) => updateReportField("submitterPhone", e.target.value)}
-                  placeholder="Không bắt buộc"
+                  onChange={(e) =>
+                    updateReportField("submitterPhone", e.target.value)
+                  }
+                  placeholder="Để người khác xác minh lại"
                 />
               </Form.Item>
-            </Col>
-          </Row>
-        </Card>
+            </div>
+          </section>
 
-        {/* ── Thiết bị ── */}
-        <Card
-          size="small"
-          className="glass-card"
-          style={{ marginBottom: 20 }}
-          styles={{ body: { padding: 18 } }}
-        >
-          <Flex justify="space-between" align="center" style={{ marginBottom: 14 }}>
-            <Text strong style={{ fontSize: 13, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-              <CameraOutlined style={{ marginRight: 6 }} />
-              Thiết bị liên quan
-            </Text>
-            <Button
-              size="small"
-              type="dashed"
-              icon={<PlusOutlined />}
-              onClick={addEquipmentItem}
-              disabled={equipmentItems.length >= MAX_EQUIPMENT_ITEMS}
-            >
-              Thêm máy
-            </Button>
-          </Flex>
+          <section className="surface" style={{ padding: 18 }}>
+            <div className="surface-head">
+              <h2 className="surface-title">
+                <CameraOutlined />
+                Thiết bị liên quan
+              </h2>
+              <Button
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={addEquipmentItem}
+                disabled={equipmentItems.length >= MAX_EQUIPMENT_ITEMS}
+              >
+                Thêm máy
+              </Button>
+            </div>
 
-          {equipmentItems.map((item, index) => (
-            <Row key={index} gutter={10} style={{ marginBottom: index < equipmentItems.length - 1 ? 10 : 0 }}>
-              <Col flex="1">
-                <Input
-                  value={item.deviceName}
-                  onChange={(e) => updateEquipmentItem(index, "deviceName", e.target.value)}
-                  placeholder="Tên máy (Canon R6, Sony A7IV...)"
-                  prefix={<CameraOutlined style={{ color: "var(--text-tertiary)" }} />}
-                />
-              </Col>
-              <Col flex="1">
-                <Input
-                  value={item.serialNumber}
-                  onChange={(e) => updateEquipmentItem(index, "serialNumber", e.target.value)}
-                  placeholder="Số seri"
-                  prefix={<NumberOutlined style={{ color: "var(--text-tertiary)" }} />}
-                />
-              </Col>
-              <Col flex="none">
-                <Button
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() => removeEquipmentItem(index)}
-                  disabled={equipmentItems.length === 1}
-                />
-              </Col>
-            </Row>
-          ))}
-        </Card>
+            <div className="equip-list">
+              {equipmentItems.map((item, index) => (
+                <div className="equip-row" key={index}>
+                  <Input
+                    value={item.deviceName}
+                    onChange={(e) =>
+                      updateEquipmentItem(index, "deviceName", e.target.value)
+                    }
+                    placeholder="Tên máy, ví dụ Canon R6"
+                    prefix={<CameraOutlined style={{ color: "var(--text-3)" }} />}
+                  />
+                  <Input
+                    value={item.serialNumber}
+                    onChange={(e) =>
+                      updateEquipmentItem(index, "serialNumber", e.target.value)
+                    }
+                    placeholder="Số seri"
+                    prefix={<NumberOutlined style={{ color: "var(--text-3)" }} />}
+                    className="num"
+                  />
+                  <Button
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={() => removeEquipmentItem(index)}
+                    disabled={equipmentItems.length === 1}
+                    aria-label={`Xóa thiết bị ${index + 1}`}
+                  />
+                </div>
+              ))}
+            </div>
+          </section>
 
-        {/* ── Nội dung ── */}
-        <Form.Item label="Nội dung tố cáo" required>
-          <Input.TextArea
-            rows={5}
-            value={reportForm.description}
-            onChange={(e) => updateReportField("description", e.target.value)}
-            placeholder="Mô tả cách thức lừa đảo, thời gian, thiết bị, link chat, bằng chứng..."
-            showCount
-            style={{ borderRadius: 14 }}
+          <section className="surface" style={{ padding: 18 }}>
+            <div className="surface-head">
+              <h2 className="surface-title">
+                <ExclamationCircleOutlined />
+                Nội dung và bằng chứng
+              </h2>
+            </div>
+
+            <Form.Item label="Nội dung tố cáo" required>
+              <Input.TextArea
+                rows={5}
+                value={reportForm.description}
+                onChange={(e) =>
+                  updateReportField("description", e.target.value)
+                }
+                placeholder="Mô tả cách thức lừa đảo, thời gian, thiết bị bị mất, link trao đổi."
+                showCount
+              />
+            </Form.Item>
+
+            <Form.Item label="Ảnh bằng chứng" style={{ marginBottom: 0 }}>
+              <Upload.Dragger
+                multiple
+                accept="image/*"
+                fileList={reportImages}
+                onChange={handleImageChange}
+                beforeUpload={() => false}
+                maxCount={MAX_IMAGES}
+                listType="picture"
+              >
+                <p className="ant-upload-drag-icon">
+                  <InboxOutlined />
+                </p>
+                <p className="ant-upload-text">
+                  Kéo ảnh vào đây hoặc bấm để chọn
+                </p>
+                <p className="ant-upload-hint">
+                  Tối đa {MAX_IMAGES} ảnh, mỗi ảnh {MAX_IMAGE_MB}MB
+                </p>
+              </Upload.Dragger>
+            </Form.Item>
+          </section>
+        </div>
+
+        {reportError && (
+          <Alert
+            type="error"
+            message={reportError}
+            showIcon
+            closable
+            onClose={() => setReportError("")}
+            style={{ marginTop: 18 }}
           />
-        </Form.Item>
-
-        {/* ── Upload ── */}
-        <Form.Item label="Ảnh bằng chứng">
-          <div className="premium-upload">
-            <Upload.Dragger
-              multiple
-              accept="image/*"
-              fileList={reportImages}
-              onChange={handleImageChange}
-              beforeUpload={() => false}
-              maxCount={MAX_IMAGES}
-              listType="picture"
-            >
-              <p className="ant-upload-drag-icon">
-                <InboxOutlined />
-              </p>
-              <p className="ant-upload-text" style={{ fontWeight: 600 }}>
-                Kéo thả ảnh vào đây hoặc click để chọn
-              </p>
-              <p className="ant-upload-hint">
-                Tối đa {MAX_IMAGES} ảnh, mỗi ảnh ≤ {MAX_IMAGE_MB}MB
-              </p>
-            </Upload.Dragger>
-          </div>
-        </Form.Item>
+        )}
+        {reportSuccess && (
+          <Alert
+            type="success"
+            message={reportSuccess}
+            showIcon
+            closable
+            onClose={() => setReportSuccess("")}
+            style={{ marginTop: 18 }}
+          />
+        )}
 
         <Button
           type="primary"
           htmlType="submit"
+          size="large"
           block
           icon={<SendOutlined />}
           loading={isSubmitting}
-          className="submit-btn"
+          style={{ marginTop: 18 }}
         >
-          {isSubmitting ? "Đang gửi..." : "Gửi tố cáo"}
+          {isSubmitting ? "Đang gửi" : "Gửi tố cáo"}
         </Button>
       </Form>
-
-      {reportError && (
-        <Alert type="error" message={reportError} showIcon closable onClose={() => setReportError("")} style={{ marginTop: 16, borderRadius: 12 }} />
-      )}
-      {reportSuccess && (
-        <Alert type="success" message={reportSuccess} showIcon closable onClose={() => setReportSuccess("")} style={{ marginTop: 16, borderRadius: 12 }} />
-      )}
     </div>
   );
 
-  /* ══════════════════════════════════════════
-     ALL REPORTS PANEL
-     ══════════════════════════════════════════ */
+  /* ── Render ──────────────────────────────── */
 
-  const allReportsPanel = (
-    <div className="fade-in">
-      <div className="hero-section">
-        <div className="hero-badge"><DatabaseOutlined /> Dữ liệu mở</div>
-        <h1 className="hero-title">Cơ sở dữ liệu<br/>Scammer</h1>
-        <p className="hero-subtitle">
-          Danh sách đen được đóng góp bởi cộng đồng cho thuê máy ảnh trên toàn quốc.
-        </p>
+  const panels = {
+    all: allReportsPanel,
+    check: searchPanel,
+    report: reportPanel,
+    account: <AccountPanel />,
+  };
+
+  return (
+    <>
+      <a className="skip-link" href="#main">
+        Tới nội dung chính
+      </a>
+      <div className="app-backdrop" />
+      <NoticeModal onVerify={() => setActiveTab("account")} />
+
+      <div className="app-shell">
+        {contextHolder}
+
+        <header className="app-header">
+          <div className="brand">
+            <span className="brand-mark" aria-hidden="true">
+              S
+            </span>
+            ScamChecker
+          </div>
+
+          <nav className="header-nav" aria-label="Chuyển mục">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                className="header-nav-item"
+                aria-current={activeTab === tab.key ? "page" : undefined}
+                onClick={() => setActiveTab(tab.key)}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          <span className="header-count">
+            {isLoadingReports ? "Đang tải" : `${reports.length} tố cáo`}
+          </span>
+        </header>
+
+        <main id="main" className="content">
+          {panels[activeTab]}
+        </main>
       </div>
 
-      {reports.length === 0 ? (
-        <Empty
-          description="Chưa có dữ liệu tố cáo nào"
-          style={{ padding: "60px 0" }}
-        />
-      ) : (
-        <>
-          <Row gutter={[16, 16]}>
-            {paginatedReports.map((item) => (
-              <Col xs={24} md={12} key={item.id}>
-                <ReportCard item={item} onViewDetail={setSelectedReport} />
-              </Col>
-            ))}
-          </Row>
-
-          <Flex justify="center" style={{ marginTop: 24 }}>
-            <Pagination
-              current={homePage}
-              total={reports.length}
-              pageSize={HOME_REPORTS_PER_PAGE}
-              onChange={setHomePage}
-              showSizeChanger={false}
-              showTotal={(total) => (
-                <Text type="secondary" style={{ fontSize: 13 }}>{total} tố cáo</Text>
-              )}
-            />
-          </Flex>
-        </>
-      )}
-    </div>
-  );
-
-  /* ══════════════════════════════════════════
-     RENDER
-     ══════════════════════════════════════════ */
-
-  return <>
-    <Layout style={{ minHeight: "100vh", background: "transparent", paddingBottom: 80 }}>
-      {contextHolder}
-      <div className="bg-grid" />
-      <div className="app-bg" />
-
-      {/* ══ HEADER ══ */}
-      <header className="app-header">
-        <div className="brand-logo">
-          <SafetyCertificateOutlined style={{ fontSize: 24, color: 'var(--primary)' }} />
-          ScamChecker
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
-          <SafetyOutlined /> BẢO VỆ CỘNG ĐỒNG
-        </div>
-      </header>
-
-      <Content
-        style={{
-          position: "relative",
-          zIndex: 1,
-          maxWidth: 1200,
-          margin: "0 auto",
-          width: "100%",
-          padding: screens.md ? "24px 20px" : "20px 14px",
-        }}
-      >
-        <motion.div
-           key={activeTab}
-           initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
-           animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-           transition={{ duration: 0.3 }}
-        >
-          {activeTab === "all" && allReportsPanel}
-          {activeTab === "check" && searchPanel}
-          {activeTab === "report" && reportPanel}
-        </motion.div>
-      </Content>
-
-      {/* ══ DETAIL MODAL ══ */}
       <ReportDetailModal
         report={selectedReport}
         open={Boolean(selectedReport)}
         onClose={() => setSelectedReport(null)}
       />
 
-      {/* ══ AI SCANNER MODAL (report tab) ══ */}
       <CccdScanner
         open={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
         onApply={handleScannerApply}
       />
-    </Layout>
 
-    {/* ══ BOTTOM NAVIGATION ══ */}
-    <nav className="mobile-nav">
-      <button
-        className={`nav-item ${activeTab === 'all' ? 'active' : ''}`}
-        onClick={() => setActiveTab('all')}
-      >
-        <div className="icon-wrapper"><DatabaseOutlined /></div>
-        <span>Dữ liệu</span>
-      </button>
-      
-      <button
-        className={`nav-item ${activeTab === 'check' ? 'active' : ''}`}
-        onClick={() => setActiveTab('check')}
-      >
-        <div className="icon-wrapper"><SearchOutlined /></div>
-        <span>Tra cứu</span>
-      </button>
-      
-      <button
-        className={`nav-item ${activeTab === 'report' ? 'active' : ''}`}
-        onClick={() => setActiveTab('report')}
-      >
-        <div className="icon-wrapper"><SendOutlined /></div>
-        <span>Tố cáo</span>
-      </button>
-    </nav>
-  </>;
+      <nav className="bottom-nav" aria-label="Chuyển mục">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            className="bottom-nav-item"
+            aria-current={activeTab === tab.key ? "page" : undefined}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            <span className="bottom-nav-icon">{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+    </>
+  );
 }
 
 export default App;
