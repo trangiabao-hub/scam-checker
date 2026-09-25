@@ -3,6 +3,11 @@ import { signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { auth, googleProvider } from "./firebase";
 import { fetchMe, fetchScamConfig, loginWithGoogleIdToken } from "./api";
 import { AuthContext } from "./auth-context";
+import {
+  GOOGLE_LOGIN_EMBEDDED_BROWSER_HINT_VI,
+  isLikelyEmbeddedBrowser,
+  resolveGoogleSignInError,
+} from "./googleSignInEnvironment";
 
 const TOKEN_KEY = "scamchecker_token";
 
@@ -86,6 +91,10 @@ export default function AuthProvider({ children }) {
     setAuthError("");
     setIsSigningIn(true);
     try {
+      if (isLikelyEmbeddedBrowser()) {
+        setAuthError(GOOGLE_LOGIN_EMBEDDED_BROWSER_HINT_VI);
+        return null;
+      }
       const result = await signInWithPopup(auth, googleProvider);
       const idToken = await result.user.getIdToken();
       const data = await loginWithGoogleIdToken({
@@ -102,11 +111,7 @@ export default function AuthProvider({ children }) {
       if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
         return null;
       }
-      setAuthError(
-        code === "auth/popup-blocked"
-          ? "Trình duyệt đã chặn cửa sổ đăng nhập. Hãy cho phép popup rồi thử lại."
-          : error?.message || "Đăng nhập Google thất bại.",
-      );
+      setAuthError(resolveGoogleSignInError(error));
       return null;
     } finally {
       setIsSigningIn(false);
