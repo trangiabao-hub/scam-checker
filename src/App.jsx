@@ -1262,6 +1262,7 @@ function App() {
             <Route path="/check" element={searchPanel} />
             <Route path="/report" element={reportPanel} />
             <Route path="/account" element={<AccountPanel />} />
+            <Route path="/account/shops" element={<AccountPanel />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

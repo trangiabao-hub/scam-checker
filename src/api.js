@@ -180,6 +180,18 @@ export const adminListShops = (token, status) =>
     headers: authHeaders(token),
   });
 
+export const adminListActiveShops = (token) =>
+  request("/scam-admin/shops/active", {
+    method: "GET",
+    headers: authHeaders(token),
+  });
+
+export const adminRemoveMember = (token, id) =>
+  request(`/scam-admin/members/${id}/remove`, {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+
 export const adminReviewShop = (token, id, payload) =>
   request(`/scam-admin/shops/${id}/review`, {
     method: "POST",

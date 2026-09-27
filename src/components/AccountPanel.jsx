@@ -1,4 +1,5 @@
-import { Alert, Button, Spin } from "antd";
+import { Alert, Button, Segmented, Spin } from "antd";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   ClockCircleOutlined,
   CloseCircleOutlined,
@@ -10,6 +11,7 @@ import { useAuth } from "../auth-context";
 import ShopRegisterForm from "./ShopRegisterForm";
 import MembersManager from "./MembersManager";
 import AdminReview from "./AdminReview";
+import ActiveShops from "./ActiveShops";
 import ProfileCard from "./ProfileCard";
 import ShopCard from "./ShopCard";
 
@@ -30,6 +32,8 @@ export default function AccountPanel() {
     signIn,
     signOut,
   } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   if (isRestoring) {
     return (
@@ -100,7 +104,7 @@ export default function AccountPanel() {
     <header className="page-head">
       <div className="account-head">
         <div style={{ minWidth: 0 }}>
-          <h1>{isAdmin ? "Duyệt hồ sơ shop" : "Tài khoản"}</h1>
+          <h1>{isAdmin ? "Quản trị shop" : "Tài khoản"}</h1>
           <p style={{ marginTop: 6 }}>
             {account?.fullName ? `${account.fullName} · ${email}` : email}
           </p>
@@ -112,12 +116,23 @@ export default function AccountPanel() {
     </header>
   );
 
-  /* Người của FAO duyệt hồ sơ */
+  /* Người của FAO: duyệt hồ sơ và quản lý shop đang hoạt động */
   if (isAdmin) {
+    const isShopsView = location.pathname.startsWith("/account/shops");
     return (
       <div className="tab-panel">
         {header}
-        <AdminReview />
+        <Segmented
+          block
+          value={isShopsView ? "shops" : "review"}
+          onChange={(value) => navigate(value === "shops" ? "/account/shops" : "/account")}
+          options={[
+            { label: "Duyệt hồ sơ", value: "review" },
+            { label: "Shop đang hoạt động", value: "shops" },
+          ]}
+          style={{ marginBottom: 18 }}
+        />
+        {isShopsView ? <ActiveShops /> : <AdminReview />}
       </div>
     );
   }
