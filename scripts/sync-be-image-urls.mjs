@@ -9,6 +9,13 @@ const DEFAULT_UPDATE_METHODS = ["PUT"];
 
 const readEnv = (name) => String(process.env[name] ?? "").trim();
 
+// API tố cáo đã khoá: cần token ScamChecker của admin (localStorage
+// "scamchecker_token" sau khi đăng nhập web bằng email admin).
+const authHeaders = () => {
+  const token = readEnv("SCAMCHECKER_TOKEN");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
 const loadEnvFile = (filePath) => {
   if (!fs.existsSync(filePath)) return;
   const raw = fs.readFileSync(filePath, "utf8");
@@ -260,6 +267,7 @@ const cloneImageToBe = async ({ apiBaseUrl, sourceUrl, cccd, index }) => {
   return withTimeout(async (signal) => {
     const uploadResponse = await fetch(endpoint, {
       method: "POST",
+      headers: authHeaders(),
       body: formData,
       signal,
     });
@@ -305,7 +313,7 @@ const rehostImagesForBeReport = async ({ apiBaseUrl, report, forceRehostAll }) =
 const fetchExistingBeReports = async (apiBaseUrl) => {
   const endpoint = `${apiBaseUrl.replace(/\/+$/, "")}/public/scam-reports`;
   return withTimeout(async (signal) => {
-    const response = await fetch(endpoint, { method: "GET", signal });
+    const response = await fetch(endpoint, { method: "GET", headers: authHeaders(), signal });
     await assertOk(response, "Fetch BE reports");
     const payload = await parseResponseBody(response);
     return extractArray(payload).map((row) => {
@@ -349,7 +357,7 @@ const updateReportImagesInBe = async ({
       await withTimeout(async (signal) => {
         const response = await fetch(endpoint, {
           method,
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...authHeaders() },
           body: JSON.stringify(reportPayload),
           signal,
         });

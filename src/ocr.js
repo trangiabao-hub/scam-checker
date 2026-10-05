@@ -124,12 +124,6 @@ const normalizeDiacritics = (value) =>
     .replace(/[ \t]+/g, " ")
     .trim();
 
-const stripPunct = (value) =>
-  String(value ?? "")
-    .replace(/[^\p{L}\p{N}\s/]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
 const isLikelyName = (line) => {
   if (!line) return false;
   if (/[0-9]/.test(line)) return false;
@@ -228,10 +222,28 @@ const extractByLabel = (text, label, { multiline = false } = {}) => {
     .trim();
 };
 
-const findNameNearLabel = (lines, idx) => {
+const CARD_HEADER_RE =
+  /C[OỘ]NG\s*H[OÒ]A|VI[EỆ]T\s*NAM|C[AĂ]N\s*C[UƯ][OỚ]C|IDENTITY|SOCIALIST|REPUBLIC|INDEPENDENCE|FREEDOM|HAPPINESS|H[AẠ]NH\s*PH[UÚ]C/i;
+
+// OCR hay dính nhiễu nền vào cùng dòng với tên ("PHAN THUY DƯƠNG      1"),
+// nên tách dòng theo khoảng trắng cột/ký tự lạ rồi chọn cụm giống tên nhất.
+// Tên trên thẻ in hoa nên kiểm tra tỉ lệ chữ hoa trên chuỗi gốc.
+const pickNameFromLine = (line) => {
+  const chunks = String(line ?? "")
+    .split(/\s{2,}|[^\p{L}\s]+|\p{Lm}+/u)
+    .map((c) => normalizeDiacritics(c))
+    .filter(
+      (c) =>
+        c.split(" ").length >= 2 && isLikelyName(c) && !CARD_HEADER_RE.test(c),
+    );
+  if (!chunks.length) return "";
+  return chunks.sort((a, b) => b.length - a.length)[0].toUpperCase();
+};
+
+const findNameAfter = (lines, idx) => {
   for (let i = idx + 1; i < Math.min(lines.length, idx + 4); i++) {
-    const cand = stripPunct(lines[i]).toUpperCase();
-    if (isLikelyName(cand)) return normalizeDiacritics(cand);
+    const cand = pickNameFromLine(lines[i]);
+    if (cand) return cand;
   }
   return "";
 };
@@ -247,17 +259,13 @@ const parseFrontText = (rawText) => {
   const nameLabelIdx = lines.findIndex((l) => FIELD_LABELS.fullName.test(l));
   if (nameLabelIdx >= 0) {
     const onSameLine = extractByLabel(lines[nameLabelIdx], FIELD_LABELS.fullName);
-    if (isLikelyName(onSameLine.toUpperCase())) {
-      fullName = onSameLine.toUpperCase();
-    } else {
-      fullName = findNameNearLabel(lines, nameLabelIdx);
-    }
+    fullName = pickNameFromLine(onSameLine) || findNameAfter(lines, nameLabelIdx);
   }
+  // Không đoán tên từ dòng bất kỳ: tên sai còn tệ hơn không có tên vì nó
+  // được dùng để tra cứu. Chỉ thử các dòng ngay sau số CCCD.
   if (!fullName) {
-    const candidate = lines
-      .map((l) => stripPunct(l).toUpperCase())
-      .find((l) => isLikelyName(l));
-    if (candidate) fullName = candidate;
+    const cccdLineIdx = lines.findIndex((l) => /\d{3}\D?\d{3}\D?\d{3}\D?\d{3}/.test(l));
+    if (cccdLineIdx >= 0) fullName = findNameAfter(lines, cccdLineIdx);
   }
 
   const dateOfBirthRaw = extractByLabel(text, FIELD_LABELS.dateOfBirth);
@@ -265,8 +273,12 @@ const parseFrontText = (rawText) => {
     ? findFirstDate(dateOfBirthRaw)
     : findFirstDate(text);
 
-  const genderRaw = extractByLabel(text, FIELD_LABELS.gender);
-  const gender = extractGender(genderRaw) || extractGender(text);
+  // Giá trị giới tính thường nằm ở dòng dưới nhãn; bỏ "Việt Nam" khỏi
+  // fallback để chữ "Nam" trong quốc hiệu không bị đọc thành giới tính.
+  const genderRaw = extractByLabel(text, FIELD_LABELS.gender, { multiline: true });
+  const gender =
+    extractGender(genderRaw) ||
+    extractGender(text.replace(/Vi[eệê][tỵ]\s*Nam/gi, " "));
 
   const nationalityRaw = extractByLabel(text, FIELD_LABELS.nationality);
   const nationality = extractNationality(nationalityRaw) || extractNationality(text);

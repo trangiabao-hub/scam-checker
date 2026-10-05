@@ -39,6 +39,7 @@ import {
   ReloadOutlined,
   UserOutlined as AccountIcon,
   SafetyCertificateOutlined,
+  LockOutlined,
 } from "@ant-design/icons";
 import "./App.css";
 import {
@@ -182,6 +183,40 @@ function EmptyState({ icon, title, children }) {
       <div className="empty-state-icon">{icon}</div>
       <h2>{title}</h2>
       <p>{children}</p>
+    </div>
+  );
+}
+
+function LockedPanel({ isSignedIn, isRegistered, onAction }) {
+  const [title, body, action] = !isSignedIn
+    ? [
+        "Dữ liệu chỉ dành cho shop đã xác thực",
+        "Đăng nhập bằng Google để xem dữ liệu nếu shop của bạn đã được duyệt, hoặc gửi hồ sơ xác thực shop.",
+        "Đăng nhập / Xác thực shop",
+      ]
+    : !isRegistered
+      ? [
+          "Tài khoản chưa thuộc shop nào",
+          "Gửi hồ sơ xác thực shop, hoặc nhờ chủ shop đã được duyệt thêm email của bạn vào danh sách nhân viên.",
+          "Gửi hồ sơ xác thực shop",
+        ]
+      : [
+          "Shop của bạn chưa được duyệt",
+          "Dữ liệu sẽ mở ngay khi hồ sơ shop được duyệt. Xem trạng thái hồ sơ trong mục Tài khoản.",
+          "Xem trạng thái hồ sơ",
+        ];
+  return (
+    <div className="tab-panel">
+      <div className="empty-state">
+        <div className="empty-state-icon">
+          <LockOutlined />
+        </div>
+        <h2>{title}</h2>
+        <p>{body}</p>
+        <Button type="primary" size="large" onClick={onAction} style={{ marginTop: 18 }}>
+          {action}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -347,13 +382,18 @@ function ReportCard({ item, onViewDetail }) {
 
 function App() {
   const [messageApi, contextHolder] = message.useMessage();
-  const { isSignedIn } = useAuth();
+  const { token, config, isSignedIn, isRegistered, isVerified, isAdmin, isRestoring } =
+    useAuth();
   const navigate = useNavigate();
   const tabs = useMemo(() => buildTabs(isSignedIn), [isSignedIn]);
 
   const [reports, setReports] = useState([]);
   const [isLoadingReports, setIsLoadingReports] = useState(true);
   const [dataError, setDataError] = useState("");
+  // Backend trả 401 khi đã khoá, kể cả lúc config chưa tải xong hoặc tải lỗi.
+  const [isDeniedByApi, setIsDeniedByApi] = useState(false);
+  const hasAccess = isAdmin || isVerified;
+  const isLocked = !hasAccess && (Boolean(config?.requireAuth) || isDeniedByApi);
 
   const [queryKeyword, setQueryKeyword] = useState("");
   const [searchResult, setSearchResult] = useState(null);
@@ -407,12 +447,12 @@ function App() {
   /* ── Tải dữ liệu ─────────────────────────── */
 
   const loadReports = useCallback(async () => {
-    const data = await fetchReports();
+    const data = await fetchReports(token);
     const normalizedReports = (data ?? [])
       .map(normalizeReport)
       .sort((a, b) => b.createdAtMs - a.createdAtMs);
     setReports(normalizedReports);
-  }, []);
+  }, [token]);
 
   /* Dùng chung cho lần tải đầu và cho nút thử lại khi API lỗi */
   const refreshReports = useCallback(async () => {
@@ -427,20 +467,37 @@ function App() {
     try {
       await loadReports();
       setDataError("");
+      setIsDeniedByApi(false);
     } catch (error) {
-      setDataError(
-        error instanceof Error
-          ? error.message
-          : "Không đọc được dữ liệu từ API.",
-      );
+      setReports([]);
+      if (error?.status === 401) {
+        setIsDeniedByApi(true);
+        setDataError("");
+      } else {
+        setDataError(
+          error instanceof Error
+            ? error.message
+            : "Không đọc được dữ liệu từ API.",
+        );
+      }
     } finally {
       setIsLoadingReports(false);
     }
   }, [loadReports]);
 
+  // Chờ khôi phục phiên xong để không gọi API thiếu token rồi bị 401 oan.
+  // Không gọi khi config đã báo khoá mà người dùng chưa đủ quyền.
+  const shouldSkipLoad = isRestoring || (Boolean(config?.requireAuth) && !hasAccess);
   useEffect(() => {
+    if (shouldSkipLoad) {
+      if (!isRestoring) {
+        setReports([]);
+        setIsLoadingReports(false);
+      }
+      return;
+    }
     refreshReports();
-  }, [refreshReports]);
+  }, [refreshReports, shouldSkipLoad, isRestoring, hasAccess]);
 
   /* ── Tra cứu ─────────────────────────────── */
 
@@ -450,16 +507,16 @@ function App() {
       const digits = String(keyword ?? "").replace(/\D/g, "");
       if (!norm) return [];
       return reports.filter((item) => {
-        const fields = [
-          item.cccd,
-          item.scammerPhone,
-          item.submitterPhone,
-          item.scammerName,
-          item.submitterName,
-        ];
-        const textMatch = fields.some((f) =>
-          normalizeSearchText(f).includes(norm),
-        );
+        const idFields = [item.cccd, item.scammerPhone, item.submitterPhone];
+        const nameFields = [item.scammerName, item.submitterName];
+        // Tên chỉ khớp từ đầu một từ: "en kha" không được khớp "nguyen khanh".
+        const textMatch =
+          idFields.some((f) => normalizeSearchText(f).includes(norm)) ||
+          nameFields.some((f) =>
+            ` ${normalizeSearchText(f).replace(/\s+/g, " ")}`.includes(
+              ` ${norm.replace(/\s+/g, " ")}`,
+            ),
+          );
         const digitMatch = digits
           ? [item.cccd, item.scammerPhone, item.submitterPhone].some((f) =>
               String(f ?? "")
@@ -668,9 +725,11 @@ function App() {
       setIsSubmitting(true);
       const files = reportImages.map((f) => f.originFileObj).filter(Boolean);
       const imageUrls = await Promise.all(
-        files.map((file) => uploadEvidenceFile({ file, cccd: reportForm.cccd })),
+        files.map((file) =>
+          uploadEvidenceFile({ token, file, cccd: reportForm.cccd }),
+        ),
       );
-      await createReport({
+      await createReport(token, {
         cccd: reportForm.cccd,
         reporter_name: reportForm.scammerName.trim() || "Không rõ",
         phone: reportForm.scammerPhone.trim(),
@@ -1218,6 +1277,14 @@ function App() {
 
   /* ── Render ──────────────────────────────── */
 
+  const lockedPanel = (
+    <LockedPanel
+      isSignedIn={isSignedIn}
+      isRegistered={isRegistered}
+      onAction={() => navigate("/account")}
+    />
+  );
+
   return (
     <>
       <a className="skip-link" href="#main">
@@ -1252,15 +1319,19 @@ function App() {
           </nav>
 
           <span className="header-count">
-            {isLoadingReports ? "Đang tải" : `${reports.length} tố cáo`}
+            {isLocked
+              ? "Đã khoá"
+              : isLoadingReports
+                ? "Đang tải"
+                : `${reports.length} tố cáo`}
           </span>
         </header>
 
         <main id="main" className="content">
           <Routes>
-            <Route path="/" element={allReportsPanel} />
-            <Route path="/check" element={searchPanel} />
-            <Route path="/report" element={reportPanel} />
+            <Route path="/" element={isLocked ? lockedPanel : allReportsPanel} />
+            <Route path="/check" element={isLocked ? lockedPanel : searchPanel} />
+            <Route path="/report" element={isLocked ? lockedPanel : reportPanel} />
             <Route path="/account" element={<AccountPanel />} />
             <Route path="/account/shops" element={<AccountPanel />} />
             <Route path="*" element={<Navigate to="/" replace />} />

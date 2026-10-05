@@ -30,8 +30,14 @@ export default function NoticeModal({ onVerify }) {
   const [confirmed, setConfirmed] = useState(false);
 
   const until = config?.noticeUntil ?? "";
+  // Đã khoá thì màn hình khoá thay cho thông báo "sắp khoá".
   const open =
-    Boolean(until) && !isRestoring && !isVerified && !isAdmin && !confirmed;
+    Boolean(until) &&
+    !config?.requireAuth &&
+    !isRestoring &&
+    !isVerified &&
+    !isAdmin &&
+    !confirmed;
 
   // Khoá cuộn khi mở, không đụng width của body.
   useEffect(() => {

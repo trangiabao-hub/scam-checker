@@ -72,28 +72,36 @@ const extractUploadUrl = (payload) =>
   payload?.fileUrl ??
   "";
 
-export const fetchReports = async () => {
-  const payload = await request("/public/scam-reports", { method: "GET" });
+const authHeaders = (token) => (token ? { Authorization: `Bearer ${token}` } : {});
+const jsonHeaders = (token) => ({
+  "Content-Type": "application/json",
+  ...authHeaders(token),
+});
+
+export const fetchReports = async (token) => {
+  const payload = await request("/public/scam-reports", {
+    method: "GET",
+    headers: authHeaders(token),
+  });
   return extractArray(payload);
 };
 
-export const createReport = async (reportPayload) => {
+export const createReport = async (token, reportPayload) => {
   return request("/public/scam-reports", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: jsonHeaders(token),
     body: JSON.stringify(reportPayload),
   });
 };
 
-export const uploadEvidenceFile = async ({ file, cccd }) => {
+export const uploadEvidenceFile = async ({ token, file, cccd }) => {
   const formData = new FormData();
   formData.append("file", file);
   if (cccd) formData.append("cccd", cccd);
 
   const payload = await request("/public/scam-reports/upload", {
     method: "POST",
+    headers: authHeaders(token),
     body: formData,
   });
 
@@ -105,12 +113,6 @@ export const uploadEvidenceFile = async ({ file, cccd }) => {
 };
 
 /* ── Xác thực chủ shop ─────────────────────────────────────── */
-
-const authHeaders = (token) => ({ Authorization: `Bearer ${token}` });
-const jsonHeaders = (token) => ({
-  "Content-Type": "application/json",
-  ...(token ? authHeaders(token) : {}),
-});
 
 export const fetchScamConfig = () => request("/scam-auth/config", { method: "GET" });
 
